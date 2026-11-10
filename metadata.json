@@ -1,0 +1,8 @@
+{
+  "name": "BiblioTech - Gestion de Bibliothèque",
+  "description": "Système moderne de gestion de bibliothèque universitaire avec catalogue, suivi des disponibilités et espace gestionnaire.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
