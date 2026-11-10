@@ -10,12 +10,13 @@ import {
   X,
   Layers,
   Barcode,
-  Sparkles,
   AlertCircle,
   Camera,
-  RefreshCw
+  RefreshCw,
+  UploadCloud,
+  CheckCircle2
 } from 'lucide-react';
-import { Html5QrcodeScanner } from 'html5-qrcode';
+import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode';
 import { Book, mockBooks as defaultMockBooks } from '../types';
 
 interface ManagerDashboardProps {
@@ -35,6 +36,10 @@ export default function ManagerDashboard({
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [addTab, setAddTab] = useState<'scan' | 'manual'>('scan');
 
+  // État du scanner
+  const [cameraStatus, setCameraStatus] = useState<'starting' | 'active' | 'error' | 'success'>('starting');
+  const [cameraErrorMessage, setCameraErrorMessage] = useState<string | null>(null);
+
   // État de la modal d'édition
   const [editingBook, setEditingBook] = useState<Book | null>(null);
 
@@ -49,8 +54,9 @@ export default function ManagerDashboard({
   const [scanMessage, setScanMessage] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
 
-  // Référence au scanner html5-qrcode
-  const scannerRef = useRef<Html5QrcodeScanner | null>(null);
+  // Référence d'instance au scanner
+  const html5QrCodeRef = useRef<Html5Qrcode | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   // Synchronisation avec les props
   useEffect(() => {
@@ -80,68 +86,135 @@ export default function ManagerDashboard({
     }
   };
 
-  // Initialisation du scanner QR/Barcode lorsque l'onglet "scan" est actif dans la modale
-  useEffect(() => {
-    if (!isAddModalOpen || addTab !== 'scan') {
-      if (scannerRef.current) {
-        try {
-          scannerRef.current.clear().catch(() => {});
-        } catch {
-          // ignore cleanup errors
-        }
-        scannerRef.current = null;
-      }
-      return;
-    }
+  // Gestion du succès du scan
+  const handleScanSuccess = (decodedText: string) => {
+    const cleanedText = decodedText.trim();
+    setFormIsbn(cleanedText);
+    setCameraStatus('success');
+    setScanMessage(`Code ISBN détecté : ${cleanedText}`);
 
-    const timer = setTimeout(() => {
-      const element = document.getElementById('reader');
-      if (!element) return;
+    stopCamera();
 
+    setTimeout(() => {
+      setAddTab('manual');
+    }, 1000);
+  };
+
+  // Arrêt sécurisé de la caméra
+  const stopCamera = async () => {
+    if (html5QrCodeRef.current) {
       try {
-        const scanner = new Html5QrcodeScanner(
-          'reader',
-          {
-            fps: 10,
-            qrbox: { width: 280, height: 160 },
-            rememberLastUsedCamera: true,
-            supportedScanTypes: [],
-          },
-          false
-        );
-
-        scanner.render(
-          (decodedText) => {
-            // Scan réussi : remplissage automatique de l'ISBN
-            setFormIsbn(decodedText);
-            setScanMessage(`Code ISBN scanné avec succès : ${decodedText}`);
-            // Bascule automatique vers l'onglet saisie manuelle pour compléter le titre
-            setTimeout(() => {
-              setAddTab('manual');
-            }, 900);
-          },
-          () => {
-            // Scan en cours / non détecté
-          }
-        );
-
-        scannerRef.current = scanner;
-      } catch (err) {
-        console.warn('Impossible d\'initialiser le scanner de caméra :', err);
-      }
-    }, 200);
-
-    return () => {
-      clearTimeout(timer);
-      if (scannerRef.current) {
-        try {
-          scannerRef.current.clear().catch(() => {});
-        } catch {
-          // ignore
+        if (html5QrCodeRef.current.isScanning) {
+          await html5QrCodeRef.current.stop();
         }
-        scannerRef.current = null;
+        await html5QrCodeRef.current.clear();
+      } catch (err) {
+        console.warn('Erreur lors de l\'arrêt du scanner :', err);
+      } finally {
+        html5QrCodeRef.current = null;
       }
-    };
+    }
+  };
+
+  // Démarrage de la caméra
+  const startCamera = async () => {
+    await stopCamera();
+
+    const element = document.getElementById('reader');
+    if (!element) return;
+
+    setCameraStatus('starting');
+    setCameraErrorMessage(null);
+
+    try {
+      const qrCode = new Html5Qrcode('reader', {
+        formatsToSupport: [
+          Html5QrcodeSupportedFormats.EAN_13,
+          Html5QrcodeSupportedFormats.EAN_8,
+          Html5QrcodeSupportedFormats.CODE_128,
+          Html5QrcodeSupportedFormats.CODE_39,
+          Html5QrcodeSupportedFormats.UPC_A,
+          Html5QrcodeSupportedFormats.UPC_E,
+          Html5QrcodeSupportedFormats.QR_CODE,
+        ],
+        verbose: false,
+      });
+
+      html5QrCodeRef.current = qrCode;
+
+      const config = {
+        fps: 15,
+        qrbox: { width: 240, height: 150 },
+        aspectRatio: 1.777778,
+      };
+
+      await qrCode.start(
+        { facingMode: 'environment' },
+        config,
+        (decodedText) => {
+          handleScanSuccess(decodedText);
+        },
+        () => {}
+      );
+
+      setCameraStatus('active');
+    } catch (err: unknown) {
+      console.error('Erreur démarrage caméra :', err);
+      setCameraStatus('error');
+      const errStr = err instanceof Error ? err.message : String(err);
+      if (errStr.includes('NotAllowedError') || errStr.includes('Permission')) {
+        setCameraErrorMessage('Accès caméra refusé. Autorisez la caméra ou importez une photo du code-barres.');
+      } else if (errStr.includes('NotFoundError') || errStr.includes('DevicesNotFoundError')) {
+        setCameraErrorMessage('Aucune webcam détectée sur cet appareil. Utilisez l\'import de photo.');
+      } else {
+        setCameraErrorMessage('Impossible d\'activer la vidéo. Utilisez l\'import de photo ci-dessous.');
+      }
+    }
+  };
+
+  // Scan d'un fichier image
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      await stopCamera();
+      const qrCode = new Html5Qrcode('reader', {
+        formatsToSupport: [
+          Html5QrcodeSupportedFormats.EAN_13,
+          Html5QrcodeSupportedFormats.EAN_8,
+          Html5QrcodeSupportedFormats.CODE_128,
+          Html5QrcodeSupportedFormats.CODE_39,
+          Html5QrcodeSupportedFormats.UPC_A,
+          Html5QrcodeSupportedFormats.UPC_E,
+          Html5QrcodeSupportedFormats.QR_CODE,
+        ],
+        verbose: false,
+      });
+      html5QrCodeRef.current = qrCode;
+
+      const result = await qrCode.scanFile(file, true);
+      handleScanSuccess(result);
+    } catch (err) {
+      console.warn('Erreur lecture image code-barres :', err);
+      setCameraErrorMessage('Aucun code-barres lisible trouvé dans cette image. Réessayez avec une photo plus nette.');
+    }
+  };
+
+  // Cycle de vie : gérer le démarrage et l'arrêt de la caméra
+  useEffect(() => {
+    if (isAddModalOpen && addTab === 'scan') {
+      const timer = setTimeout(() => {
+        startCamera();
+      }, 250);
+
+      return () => {
+        clearTimeout(timer);
+        stopCamera();
+      };
+    } else {
+      stopCamera();
+    }
   }, [isAddModalOpen, addTab]);
 
   // Ouverture modal d'ajout
@@ -155,8 +228,16 @@ export default function ManagerDashboard({
     setFormDisponible(true);
     setScanMessage(null);
     setFormError(null);
+    setCameraStatus('starting');
+    setCameraErrorMessage(null);
     setAddTab('scan');
     setIsAddModalOpen(true);
+  };
+
+  // Fermeture modal d'ajout
+  const handleCloseAddModal = () => {
+    stopCamera();
+    setIsAddModalOpen(false);
   };
 
   // Soumission du formulaire d'ajout
@@ -179,11 +260,11 @@ export default function ManagerDashboard({
         formCouvertureUrl.trim() ||
         'https://images.unsplash.com/photo-1544716278-ca5e3f4abd8c?auto=format&fit=crop&w=600&q=80',
       disponible: formDisponible,
-      description: formDescription.trim() || 'Aucune description disponible pour cet ouvrage.',
+      description: formDescription.trim() || 'Aucune description fournie pour cet ouvrage.',
     };
 
     updateBooks([newBook, ...books]);
-    setIsAddModalOpen(false);
+    handleCloseAddModal();
   };
 
   // Ouverture modal d'édition
@@ -227,19 +308,12 @@ export default function ManagerDashboard({
     setEditingBook(null);
   };
 
-  // Simulation d'un scan ISBN (utile si pas de webcam connectée dans l'iframe)
   const handleSimulateScan = (isbnSample: string) => {
-    setFormIsbn(isbnSample);
-    setScanMessage(`Code ISBN scanné : ${isbnSample}`);
-    setTimeout(() => {
-      setAddTab('manual');
-    }, 700);
+    handleScanSuccess(isbnSample);
   };
 
-  // Liste des catégories pour le filtrage
   const categories = ['Toutes', ...Array.from(new Set(books.map((b) => b.categorie)))];
 
-  // Filtrage
   const filteredBooks = books.filter((b) => {
     const q = searchTerm.toLowerCase().trim();
     const matchesSearch =
@@ -253,25 +327,25 @@ export default function ManagerDashboard({
   });
 
   return (
-    <div className="w-full space-y-6">
-      {/* Barre d'action supérieure */}
-      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4 bg-white p-5 rounded-2xl border border-slate-200/90 shadow-xs">
+    <div className="w-full space-y-4 sm:space-y-6">
+      {/* Barre d'action supérieure responsive (empilement sur mobile) */}
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 sm:gap-4 bg-white p-4 sm:p-5 rounded-2xl border border-slate-200/90 shadow-xs">
         <div className="flex-1 relative">
           <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
           <input
             type="text"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Filtrer les ouvrages par titre, auteur ou ISBN..."
-            className="w-full text-xs pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:bg-white transition"
+            placeholder="Filtrer par titre, auteur ou ISBN..."
+            className="w-full text-sm sm:text-xs pl-10 pr-4 py-3 sm:py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:bg-white transition"
           />
         </div>
 
-        <div className="flex items-center gap-3 shrink-0">
+        <div className="flex items-center gap-2 sm:gap-3 shrink-0">
           <select
             value={selectedCategory}
             onChange={(e) => setSelectedCategory(e.target.value)}
-            className="text-xs py-2.5 px-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-700 focus:outline-hidden focus:ring-2 focus:ring-indigo-500 font-medium"
+            className="flex-1 sm:flex-none text-xs py-3 sm:py-2.5 px-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-700 focus:outline-hidden focus:ring-2 focus:ring-indigo-500 font-medium touch-manipulation"
           >
             {categories.map((c) => (
               <option key={c} value={c}>
@@ -282,31 +356,115 @@ export default function ManagerDashboard({
 
           <button
             onClick={handleOpenAddModal}
-            className="flex items-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-xl shadow-sm transition active:scale-95"
+            className="flex items-center justify-center gap-1.5 px-4 py-3 sm:py-2.5 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-xs font-semibold rounded-xl shadow-sm transition active:scale-95 shrink-0 touch-manipulation"
           >
             <Plus className="w-4 h-4" />
-            <span>Ajouter un livre</span>
+            <span>Nouveau livre</span>
           </button>
         </div>
       </div>
 
-      {/* Tableau d'administration des livres */}
+      {/* Conteneur Inventaire : VUE MOBILE EN CARTES EMPILÉES + VUE DESKTOP EN TABLEAU */}
       <div className="bg-white rounded-2xl border border-slate-200/90 shadow-xs overflow-hidden">
-        <div className="px-6 py-4 border-b border-slate-200/80 flex items-center justify-between bg-slate-50/70">
+        {/* Titre du bloc */}
+        <div className="px-4 sm:px-6 py-3.5 sm:py-4 border-b border-slate-200/80 flex items-center justify-between bg-slate-50/70">
           <div>
-            <h3 className="font-bold text-sm text-slate-900">
+            <h3 className="font-bold text-xs sm:text-sm text-slate-900">
               Inventaire & Contrôle des Disponibilités
             </h3>
-            <p className="text-xs text-slate-500">
-              {filteredBooks.length} ouvrage{filteredBooks.length > 1 ? 's' : ''} répertorié{filteredBooks.length > 1 ? 's' : ''} • Basculez la disponibilité en 1 clic
+            <p className="text-[11px] sm:text-xs text-slate-500">
+              {filteredBooks.length} ouvrage{filteredBooks.length > 1 ? 's' : ''} • Basculez la disponibilité en 1 clic
             </p>
           </div>
-          <span className="text-[11px] font-semibold text-slate-400 bg-white border border-slate-200 px-2.5 py-1 rounded-lg">
-            Mode Gestionnaire
+          <span className="text-[11px] font-semibold text-slate-500 bg-white border border-slate-200 px-2 py-0.5 rounded-md">
+            Gestion
           </span>
         </div>
 
-        <div className="overflow-x-auto">
+        {/* 1. VUE MOBILE EN CARTES EMPILÉES (Affichée sur écrans < 640px) */}
+        <div className="block sm:hidden divide-y divide-slate-100">
+          {filteredBooks.length === 0 ? (
+            <div className="py-8 text-center text-xs text-slate-400">
+              Aucun livre ne correspond à votre recherche.
+            </div>
+          ) : (
+            filteredBooks.map((book) => (
+              <div key={book.id} className="p-4 space-y-3">
+                <div className="flex items-start gap-3">
+                  <img
+                    src={book.couvertureUrl}
+                    alt={book.titre}
+                    className="w-14 h-20 object-cover rounded-lg border border-slate-200 shrink-0 bg-slate-100 shadow-2xs"
+                  />
+                  <div className="min-w-0 flex-1 space-y-1">
+                    <h4 className="font-bold text-sm text-slate-900 leading-snug line-clamp-2">
+                      {book.titre}
+                    </h4>
+                    <p className="text-xs text-slate-600 font-medium">
+                      {book.auteur}
+                    </p>
+                    <div className="flex items-center gap-2 flex-wrap pt-0.5">
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-indigo-50 text-indigo-700">
+                        <Layers className="w-3 h-3" />
+                        {book.categorie}
+                      </span>
+                      <span className="font-mono text-[10px] text-slate-400 flex items-center gap-1">
+                        <Barcode className="w-3 h-3" />
+                        {book.isbn}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Contrôle de disponibilité & Actions mobiles tactiles */}
+                <div className="flex items-center justify-between pt-2 border-t border-slate-100 gap-2">
+                  {/* Switch 1 clic */}
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleToggleDisponible(book.id)}
+                      className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden touch-manipulation ${
+                        book.disponible ? 'bg-emerald-500' : 'bg-slate-300'
+                      }`}
+                      role="switch"
+                      aria-checked={book.disponible}
+                    >
+                      <span
+                        className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md transition duration-200 ease-in-out ${
+                          book.disponible ? 'translate-x-5' : 'translate-x-0'
+                        }`}
+                      />
+                    </button>
+                    <span className={`text-xs font-semibold ${book.disponible ? 'text-emerald-700' : 'text-slate-400'}`}>
+                      {book.disponible ? 'Dispo' : 'Prêt'}
+                    </span>
+                  </div>
+
+                  {/* Boutons Éditer / Supprimer tactiles */}
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => handleOpenEditModal(book)}
+                      className="p-2 text-indigo-600 hover:bg-indigo-50 active:bg-indigo-100 rounded-lg transition touch-manipulation"
+                      title="Éditer le livre"
+                    >
+                      <Edit3 className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => handleDeleteBook(book.id, book.titre)}
+                      className="p-2 text-rose-500 hover:bg-rose-50 active:bg-rose-100 rounded-lg transition touch-manipulation"
+                      title="Supprimer le livre"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+
+        {/* 2. VUE DESKTOP / TABLETTE EN TABLEAU (Affichée dès 640px avec overflow-x-auto) */}
+        <div className="hidden sm:block overflow-x-auto">
           <table className="w-full text-left text-xs border-collapse">
             <thead>
               <tr className="bg-slate-50 text-slate-500 font-semibold border-b border-slate-200 uppercase tracking-wider text-[11px]">
@@ -327,7 +485,6 @@ export default function ManagerDashboard({
               ) : (
                 filteredBooks.map((book) => (
                   <tr key={book.id} className="hover:bg-slate-50/80 transition">
-                    {/* Colonne Livre */}
                     <td className="py-3.5 px-4">
                       <div className="flex items-center gap-3">
                         <img
@@ -347,12 +504,10 @@ export default function ManagerDashboard({
                       </div>
                     </td>
 
-                    {/* Auteur */}
                     <td className="py-3.5 px-4 font-medium text-slate-700 whitespace-nowrap">
                       {book.auteur}
                     </td>
 
-                    {/* Catégorie */}
                     <td className="py-3.5 px-4 whitespace-nowrap">
                       <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-100">
                         <Layers className="w-3 h-3" />
@@ -360,7 +515,6 @@ export default function ManagerDashboard({
                       </span>
                     </td>
 
-                    {/* Toggle Switch à 1-clic pour basculer le statut disponible */}
                     <td className="py-3.5 px-4 text-center whitespace-nowrap">
                       <div className="inline-flex items-center gap-2">
                         <button
@@ -389,7 +543,6 @@ export default function ManagerDashboard({
                       </div>
                     </td>
 
-                    {/* Actions d'édition et suppression */}
                     <td className="py-3.5 px-4 text-right whitespace-nowrap">
                       <div className="inline-flex items-center gap-1">
                         <button
@@ -416,118 +569,182 @@ export default function ManagerDashboard({
         </div>
       </div>
 
-      {/* Modal "Ajouter un livre" avec les 2 onglets (Scan ISBN / Saisie manuelle) */}
+      {/* Modal "Ajouter un livre" (Adaptée mobile : w-[94vw] sm:max-w-lg, max-h-[92vh] overflow-y-auto) */}
       {isAddModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-lg w-full overflow-hidden shadow-2xl border border-slate-100 animate-in fade-in zoom-in-95 duration-150 flex flex-col max-h-[90vh]">
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
+          <div className="bg-white rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl border border-slate-100 animate-in fade-in zoom-in-95 duration-150 flex flex-col max-h-[92vh]">
             {/* Header modal */}
-            <div className="p-5 border-b border-slate-100 flex items-center justify-between">
+            <div className="p-4 sm:p-5 border-b border-slate-100 flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-lg bg-indigo-50 flex items-center justify-center text-indigo-600">
+                <div className="w-8 h-8 rounded-lg bg-indigo-50 flex items-center justify-center text-indigo-600 shrink-0">
                   <Plus className="w-4 h-4" />
                 </div>
                 <div>
-                  <h3 className="font-bold text-base text-slate-900">Ajouter un nouveau livre</h3>
+                  <h3 className="font-bold text-sm sm:text-base text-slate-900">Ajouter un nouveau livre</h3>
                   <p className="text-xs text-slate-500">Scan code-barres ISBN ou saisie des détails</p>
                 </div>
               </div>
               <button
-                onClick={() => setIsAddModalOpen(false)}
-                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg"
+                onClick={handleCloseAddModal}
+                className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg active:bg-slate-100 transition touch-manipulation"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            {/* Onglets (Scan ISBN vs Saisie manuelle) */}
+            {/* Onglets tactiles */}
             <div className="grid grid-cols-2 p-1.5 bg-slate-100 border-b border-slate-200 text-xs font-semibold">
               <button
                 type="button"
                 onClick={() => setAddTab('scan')}
-                className={`flex items-center justify-center gap-2 py-2 rounded-xl transition ${
+                className={`flex items-center justify-center gap-1.5 py-2.5 rounded-xl transition touch-manipulation ${
                   addTab === 'scan'
                     ? 'bg-white text-indigo-700 shadow-sm font-bold'
-                    : 'text-slate-600 hover:text-slate-900'
+                    : 'text-slate-600 hover:text-slate-900 active:bg-slate-200'
                 }`}
               >
-                <ScanBarcode className="w-4 h-4 text-indigo-600" />
+                <ScanBarcode className="w-4 h-4 text-indigo-600 shrink-0" />
                 <span>1. Scan ISBN</span>
               </button>
 
               <button
                 type="button"
                 onClick={() => setAddTab('manual')}
-                className={`flex items-center justify-center gap-2 py-2 rounded-xl transition ${
+                className={`flex items-center justify-center gap-1.5 py-2.5 rounded-xl transition touch-manipulation ${
                   addTab === 'manual'
                     ? 'bg-white text-indigo-700 shadow-sm font-bold'
-                    : 'text-slate-600 hover:text-slate-900'
+                    : 'text-slate-600 hover:text-slate-900 active:bg-slate-200'
                 }`}
               >
-                <PenTool className="w-4 h-4 text-indigo-600" />
+                <PenTool className="w-4 h-4 text-indigo-600 shrink-0" />
                 <span>2. Saisie manuelle</span>
               </button>
             </div>
 
-            <div className="p-6 overflow-y-auto space-y-4">
+            <div className="p-4 sm:p-6 overflow-y-auto space-y-4">
               {/* Onglet 1: Scan ISBN via html5-qrcode */}
               {addTab === 'scan' && (
                 <div className="space-y-4">
-                  <div className="text-xs text-slate-600 leading-relaxed bg-indigo-50/70 p-3.5 rounded-xl border border-indigo-100 flex items-start gap-2.5">
+                  <div className="text-xs text-slate-600 leading-relaxed bg-indigo-50/70 p-3 rounded-xl border border-indigo-100 flex items-start gap-2.5">
                     <Camera className="w-4 h-4 text-indigo-600 shrink-0 mt-0.5" />
                     <div>
-                      Placez le code-barres ISBN de votre livre devant la caméra. La détection remplira automatiquement le champ ISBN pour l'enregistrement.
+                      Pointez la caméra vers le code-barres ISBN au dos du livre.
                     </div>
                   </div>
 
-                  {/* Zone de scan camera gérée par html5-qrcode */}
-                  <div className="rounded-xl overflow-hidden border border-slate-200 bg-slate-900 text-white min-h-[220px] flex items-center justify-center p-2">
-                    <div id="reader" className="w-full text-slate-900" />
+                  {/* Zone de scan caméra avec viseur animé responsive */}
+                  <div className="relative rounded-2xl overflow-hidden border-2 border-indigo-200 bg-slate-900 w-full max-w-full min-h-[220px] sm:min-h-[250px] flex items-center justify-center shadow-inner">
+                    <div id="reader" className="w-full max-w-full overflow-hidden" />
+
+                    {cameraStatus === 'active' && (
+                      <div className="pointer-events-none absolute inset-0 flex items-center justify-center p-2">
+                        <div className="relative w-56 sm:w-64 h-32 sm:h-36 border-2 border-indigo-400/80 rounded-xl overflow-hidden shadow-[0_0_15px_rgba(99,102,241,0.5)]">
+                          <div className="absolute top-0 left-0 w-4 h-4 border-t-4 border-l-4 border-indigo-400" />
+                          <div className="absolute top-0 right-0 w-4 h-4 border-t-4 border-r-4 border-indigo-400" />
+                          <div className="absolute bottom-0 left-0 w-4 h-4 border-b-4 border-l-4 border-indigo-400" />
+                          <div className="absolute bottom-0 right-0 w-4 h-4 border-b-4 border-r-4 border-indigo-400" />
+                          <div className="scan-laser-line absolute left-0 right-0 h-0.5 bg-rose-500 shadow-[0_0_8px_#f43f5e]" />
+                        </div>
+                      </div>
+                    )}
+
+                    {cameraStatus === 'starting' && (
+                      <div className="absolute inset-0 bg-slate-900/90 flex flex-col items-center justify-center text-white space-y-2 p-4 text-center">
+                        <RefreshCw className="w-6 h-6 animate-spin text-indigo-400" />
+                        <span className="text-xs font-medium">Activation de la caméra...</span>
+                      </div>
+                    )}
+
+                    {cameraStatus === 'error' && (
+                      <div className="absolute inset-0 bg-slate-900/95 flex flex-col items-center justify-center text-white p-4 text-center space-y-3">
+                        <AlertCircle className="w-7 h-7 text-amber-400 shrink-0" />
+                        <p className="text-xs text-slate-300 leading-relaxed max-w-xs">
+                          {cameraErrorMessage || "Accès caméra impossible."}
+                        </p>
+                        <div className="flex flex-wrap gap-2 justify-center pt-1">
+                          <button
+                            type="button"
+                            onClick={startCamera}
+                            className="flex items-center gap-1.5 px-3 py-2 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white rounded-lg text-xs font-semibold transition touch-manipulation"
+                          >
+                            <RefreshCw className="w-3.5 h-3.5" />
+                            Réessayer
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => fileInputRef.current?.click()}
+                            className="flex items-center gap-1.5 px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-lg text-xs font-semibold transition touch-manipulation"
+                          >
+                            <UploadCloud className="w-3.5 h-3.5 text-indigo-400" />
+                            Photo code-barres
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {cameraStatus === 'success' && (
+                      <div className="absolute inset-0 bg-emerald-950/90 flex flex-col items-center justify-center text-white space-y-2 p-4 text-center">
+                        <CheckCircle2 className="w-9 h-9 text-emerald-400 animate-bounce" />
+                        <span className="text-sm font-bold text-emerald-200">ISBN détecté !</span>
+                        <span className="font-mono text-xs text-white bg-emerald-800/80 px-3 py-1 rounded-full">
+                          {formIsbn}
+                        </span>
+                      </div>
+                    )}
                   </div>
 
-                  {scanMessage && (
-                    <div className="flex items-center gap-2 p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs rounded-xl font-medium animate-in fade-in">
-                      <Check className="w-4 h-4 text-emerald-600 shrink-0" />
-                      <span>{scanMessage}</span>
-                    </div>
-                  )}
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    onChange={handleFileUpload}
+                    className="hidden"
+                  />
 
-                  {/* Boutons de simulation de scan (très pratique si la caméra n'est pas autorisée dans l'iframe) */}
-                  <div className="pt-2 border-t border-slate-100">
-                    <p className="text-[11px] font-semibold text-slate-400 mb-2">
-                      Ou tester avec un exemple de code ISBN :
-                    </p>
-                    <div className="flex flex-wrap gap-2">
+                  {/* Actions de secours (Importer photo ou test rapide) */}
+                  <div className="bg-slate-50 p-3 sm:p-3.5 rounded-xl border border-slate-200 space-y-2.5">
+                    <div className="flex items-center justify-between flex-wrap gap-1">
+                      <span className="text-xs font-semibold text-slate-700">Scan alternatif :</span>
                       <button
                         type="button"
-                        onClick={() => handleSimulateScan('978-2070360024')}
-                        className="px-2.5 py-1.5 rounded-lg border border-slate-200 bg-slate-50 hover:bg-indigo-50 hover:border-indigo-200 text-slate-700 text-[11px] font-mono transition"
+                        onClick={() => fileInputRef.current?.click()}
+                        className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 hover:text-indigo-800 py-1 transition touch-manipulation"
                       >
-                        978-2070360024 (Camus)
+                        <UploadCloud className="w-3.5 h-3.5" />
+                        Importer une photo
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => handleSimulateScan('978-0132350884')}
-                        className="px-2.5 py-1.5 rounded-lg border border-slate-200 bg-slate-50 hover:bg-indigo-50 hover:border-indigo-200 text-slate-700 text-[11px] font-mono transition"
-                      >
-                        978-0132350884 (Clean Code)
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleSimulateScan('978-2253006329')}
-                        className="px-2.5 py-1.5 rounded-lg border border-slate-200 bg-slate-50 hover:bg-indigo-50 hover:border-indigo-200 text-slate-700 text-[11px] font-mono transition"
-                      >
-                        978-2253006329 (1984)
-                      </button>
+                    </div>
+
+                    <div>
+                      <p className="text-[11px] text-slate-400 mb-1.5">
+                        Ou tester directement un exemple d'ISBN :
+                      </p>
+                      <div className="flex flex-wrap gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => handleSimulateScan('978-2070360024')}
+                          className="px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-indigo-50 text-slate-700 text-[11px] font-mono transition touch-manipulation"
+                        >
+                          978-2070360024 (L'Étranger)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleSimulateScan('978-0132350884')}
+                          className="px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-indigo-50 text-slate-700 text-[11px] font-mono transition touch-manipulation"
+                        >
+                          978-0132350884 (Clean Code)
+                        </button>
+                      </div>
                     </div>
                   </div>
 
-                  <div className="pt-2 flex justify-end">
+                  <div className="flex justify-end pt-1">
                     <button
                       type="button"
                       onClick={() => setAddTab('manual')}
-                      className="px-4 py-2 bg-indigo-600 text-white text-xs font-semibold rounded-xl hover:bg-indigo-700 transition"
+                      className="w-full sm:w-auto px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-xs font-semibold rounded-xl transition touch-manipulation"
                     >
-                      Continuer vers la saisie manuelle &rarr;
+                      Passer à la saisie manuelle &rarr;
                     </button>
                   </div>
                 </div>
@@ -543,10 +760,17 @@ export default function ManagerDashboard({
                     </div>
                   )}
 
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="col-span-2">
+                  {formIsbn && (
+                    <div className="p-2.5 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs rounded-xl flex items-center gap-2">
+                      <Check className="w-4 h-4 text-emerald-600 shrink-0" />
+                      <span>Code ISBN : <strong>{formIsbn}</strong></span>
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="sm:col-span-2">
                       <label className="block text-xs font-semibold text-slate-700 mb-1">
-                        Numéro ISBN {formIsbn && <span className="text-emerald-600 font-normal">(Scanné)</span>}
+                        Numéro ISBN
                       </label>
                       <div className="relative">
                         <Barcode className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -555,12 +779,12 @@ export default function ManagerDashboard({
                           value={formIsbn}
                           onChange={(e) => setFormIsbn(e.target.value)}
                           placeholder="Ex: 978-2070360024"
-                          className="w-full text-xs pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 font-mono"
+                          className="w-full text-sm sm:text-xs pl-9 pr-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 font-mono"
                         />
                       </div>
                     </div>
 
-                    <div className="col-span-2">
+                    <div className="sm:col-span-2">
                       <label className="block text-xs font-semibold text-slate-700 mb-1">
                         Titre de l'ouvrage *
                       </label>
@@ -570,7 +794,7 @@ export default function ManagerDashboard({
                         value={formTitre}
                         onChange={(e) => setFormTitre(e.target.value)}
                         placeholder="Ex: Les Misérables"
-                        className="w-full text-xs px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500"
+                        className="w-full text-sm sm:text-xs px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500"
                       />
                     </div>
 
@@ -584,7 +808,7 @@ export default function ManagerDashboard({
                         value={formAuteur}
                         onChange={(e) => setFormAuteur(e.target.value)}
                         placeholder="Victor Hugo"
-                        className="w-full text-xs px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500"
+                        className="w-full text-sm sm:text-xs px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500"
                       />
                     </div>
 
@@ -597,11 +821,11 @@ export default function ManagerDashboard({
                         value={formCategorie}
                         onChange={(e) => setFormCategorie(e.target.value)}
                         placeholder="Roman classique"
-                        className="w-full text-xs px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500"
+                        className="w-full text-sm sm:text-xs px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500"
                       />
                     </div>
 
-                    <div className="col-span-2">
+                    <div className="sm:col-span-2">
                       <label className="block text-xs font-semibold text-slate-700 mb-1">
                         URL de la couverture
                       </label>
@@ -610,11 +834,11 @@ export default function ManagerDashboard({
                         value={formCouvertureUrl}
                         onChange={(e) => setFormCouvertureUrl(e.target.value)}
                         placeholder="https://images.unsplash.com/..."
-                        className="w-full text-xs px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500"
+                        className="w-full text-sm sm:text-xs px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500"
                       />
                     </div>
 
-                    <div className="col-span-2">
+                    <div className="sm:col-span-2">
                       <label className="block text-xs font-semibold text-slate-700 mb-1">
                         Description / Résumé
                       </label>
@@ -623,16 +847,16 @@ export default function ManagerDashboard({
                         value={formDescription}
                         onChange={(e) => setFormDescription(e.target.value)}
                         placeholder="Présentation de l'ouvrage..."
-                        className="w-full text-xs px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500"
+                        className="w-full text-sm sm:text-xs px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500"
                       />
                     </div>
 
-                    <div className="col-span-2 flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-200">
+                    <div className="sm:col-span-2 flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-200">
                       <span className="text-xs font-semibold text-slate-700">Disponible immédiatement ?</span>
                       <button
                         type="button"
                         onClick={() => setFormDisponible(!formDisponible)}
-                        className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ${
+                        className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 touch-manipulation ${
                           formDisponible ? 'bg-emerald-500' : 'bg-slate-300'
                         }`}
                       >
@@ -645,17 +869,17 @@ export default function ManagerDashboard({
                     </div>
                   </div>
 
-                  <div className="flex gap-2 pt-3">
+                  <div className="flex flex-col-reverse sm:flex-row gap-2 pt-3">
                     <button
                       type="button"
                       onClick={() => setAddTab('scan')}
-                      className="px-4 py-2 text-xs font-semibold border border-slate-200 rounded-xl text-slate-600 hover:bg-slate-50 transition"
+                      className="w-full sm:w-auto px-4 py-2.5 text-xs font-semibold border border-slate-200 rounded-xl text-slate-600 hover:bg-slate-50 active:bg-slate-100 transition touch-manipulation"
                     >
                       &larr; Retour Scan
                     </button>
                     <button
                       type="submit"
-                      className="flex-1 py-2 text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl shadow-xs transition"
+                      className="w-full sm:flex-1 py-3 sm:py-2.5 text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white rounded-xl shadow-xs transition touch-manipulation"
                     >
                       Enregistrer le livre
                     </button>
@@ -667,18 +891,18 @@ export default function ManagerDashboard({
         </div>
       )}
 
-      {/* Modal "Édition d'un livre" */}
+      {/* Modal "Édition d'un livre" (Adaptée mobile) */}
       {editingBook && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-lg w-full overflow-hidden shadow-2xl border border-slate-100 animate-in fade-in zoom-in-95 duration-150 p-6 space-y-4">
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
+          <div className="bg-white rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl border border-slate-100 animate-in fade-in zoom-in-95 duration-150 p-4 sm:p-6 space-y-4 max-h-[92vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div className="flex items-center gap-2">
-                <Edit3 className="w-5 h-5 text-indigo-600" />
-                <h3 className="font-bold text-slate-900 text-base">Modifier le livre</h3>
+                <Edit3 className="w-5 h-5 text-indigo-600 shrink-0" />
+                <h3 className="font-bold text-slate-900 text-sm sm:text-base">Modifier le livre</h3>
               </div>
               <button
                 onClick={() => setEditingBook(null)}
-                className="text-slate-400 hover:text-slate-600"
+                className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg active:bg-slate-100 transition touch-manipulation"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -699,11 +923,11 @@ export default function ManagerDashboard({
                   required
                   value={formTitre}
                   onChange={(e) => setFormTitre(e.target.value)}
-                  className="w-full text-xs px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500"
+                  className="w-full text-sm sm:text-xs px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500"
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1">Auteur *</label>
                   <input
@@ -711,7 +935,7 @@ export default function ManagerDashboard({
                     required
                     value={formAuteur}
                     onChange={(e) => setFormAuteur(e.target.value)}
-                    className="w-full text-xs px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500"
+                    className="w-full text-sm sm:text-xs px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500"
                   />
                 </div>
                 <div>
@@ -720,7 +944,7 @@ export default function ManagerDashboard({
                     type="text"
                     value={formCategorie}
                     onChange={(e) => setFormCategorie(e.target.value)}
-                    className="w-full text-xs px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500"
+                    className="w-full text-sm sm:text-xs px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500"
                   />
                 </div>
               </div>
@@ -731,7 +955,7 @@ export default function ManagerDashboard({
                   type="text"
                   value={formIsbn}
                   onChange={(e) => setFormIsbn(e.target.value)}
-                  className="w-full text-xs px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 font-mono"
+                  className="w-full text-sm sm:text-xs px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 font-mono"
                 />
               </div>
 
@@ -741,7 +965,7 @@ export default function ManagerDashboard({
                   type="url"
                   value={formCouvertureUrl}
                   onChange={(e) => setFormCouvertureUrl(e.target.value)}
-                  className="w-full text-xs px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500"
+                  className="w-full text-sm sm:text-xs px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500"
                 />
               </div>
 
@@ -751,7 +975,7 @@ export default function ManagerDashboard({
                   rows={3}
                   value={formDescription}
                   onChange={(e) => setFormDescription(e.target.value)}
-                  className="w-full text-xs px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500"
+                  className="w-full text-sm sm:text-xs px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500"
                 />
               </div>
 
@@ -760,7 +984,7 @@ export default function ManagerDashboard({
                 <button
                   type="button"
                   onClick={() => setFormDisponible(!formDisponible)}
-                  className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ${
+                  className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 touch-manipulation ${
                     formDisponible ? 'bg-emerald-500' : 'bg-slate-300'
                   }`}
                 >
@@ -772,19 +996,19 @@ export default function ManagerDashboard({
                 </button>
               </div>
 
-              <div className="flex gap-2 pt-3 border-t border-slate-100">
+              <div className="flex flex-col-reverse sm:flex-row gap-2 pt-3 border-t border-slate-100">
                 <button
                   type="button"
                   onClick={() => setEditingBook(null)}
-                  className="flex-1 py-2 text-xs font-semibold border border-slate-200 rounded-xl text-slate-600 hover:bg-slate-50 transition"
+                  className="w-full sm:flex-1 py-2.5 text-xs font-semibold border border-slate-200 rounded-xl text-slate-600 hover:bg-slate-50 active:bg-slate-100 transition touch-manipulation"
                 >
                   Annuler
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-2 text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl shadow-xs transition"
+                  className="w-full sm:flex-1 py-2.5 text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white rounded-xl shadow-xs transition touch-manipulation"
                 >
-                  Enregistrer les modifications
+                  Enregistrer
                 </button>
               </div>
             </form>

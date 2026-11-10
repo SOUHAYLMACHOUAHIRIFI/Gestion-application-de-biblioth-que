@@ -90,22 +90,22 @@ export default function AuthForm({
   };
 
   return (
-    <div className="w-full max-w-md mx-auto bg-white rounded-2xl border border-slate-200/80 shadow-xl overflow-hidden">
-      {/* Tab Switcher */}
-      <div className="grid grid-cols-2 p-1.5 bg-slate-100/90 border-b border-slate-200/80 text-xs font-semibold">
+    <div className="w-full max-w-md mx-auto bg-white rounded-2xl border border-slate-200/90 shadow-xl overflow-hidden">
+      {/* Sélecteur d'onglets tactile */}
+      <div className="grid grid-cols-2 p-1.5 bg-slate-100/90 border-b border-slate-200/80 text-xs sm:text-sm font-semibold">
         <button
           type="button"
           onClick={() => {
             setMode('login');
             setError(null);
           }}
-          className={`flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl transition duration-150 ${
+          className={`flex items-center justify-center gap-2 py-3 px-3 rounded-xl transition duration-150 touch-manipulation ${
             mode === 'login'
               ? 'bg-white text-indigo-700 shadow-sm font-bold'
-              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+              : 'text-slate-600 hover:text-slate-900 active:bg-slate-200/60'
           }`}
         >
-          <LogIn className="w-4 h-4 text-indigo-600" />
+          <LogIn className="w-4 h-4 text-indigo-600 shrink-0" />
           <span>Connexion</span>
         </button>
 
@@ -115,45 +115,45 @@ export default function AuthForm({
             setMode('register');
             setError(null);
           }}
-          className={`flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl transition duration-150 ${
+          className={`flex items-center justify-center gap-1.5 py-3 px-3 rounded-xl transition duration-150 touch-manipulation ${
             mode === 'register'
               ? 'bg-white text-indigo-700 shadow-sm font-bold'
-              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+              : 'text-slate-600 hover:text-slate-900 active:bg-slate-200/60'
           }`}
         >
-          <GraduationCap className="w-4 h-4 text-indigo-600" />
+          <GraduationCap className="w-4 h-4 text-indigo-600 shrink-0" />
           <span className="truncate">Inscription (Étudiant)</span>
         </button>
       </div>
 
-      {/* Header Info */}
-      <div className="p-6 pb-2">
-        <div className="flex items-center gap-2 mb-1">
-          <div className="w-8 h-8 rounded-lg bg-indigo-50 flex items-center justify-center text-indigo-600">
-            {mode === 'login' ? <LogIn className="w-4 h-4" /> : <UserPlus className="w-4 h-4" />}
+      {/* En-tête d'information */}
+      <div className="p-4 sm:p-6 pb-2">
+        <div className="flex items-center gap-2.5 mb-1.5">
+          <div className="w-9 h-9 rounded-xl bg-indigo-50 flex items-center justify-center text-indigo-600 shrink-0">
+            {mode === 'login' ? <LogIn className="w-5 h-5" /> : <UserPlus className="w-5 h-5" />}
           </div>
-          <h2 className="text-lg font-bold text-slate-900">
+          <h2 className="text-base sm:text-lg font-bold text-slate-900">
             {mode === 'login' ? 'Accéder à votre compte' : 'Créer un compte étudiant'}
           </h2>
         </div>
         <p className="text-xs text-slate-500 leading-relaxed">
           {mode === 'login'
             ? 'Connectez-vous avec vos identifiants étudiant ou gestionnaire.'
-            : 'Inscription réservée aux étudiants pour emprunter des livres dans le catalogue.'}
+            : 'Inscription réservée aux étudiants pour consulter le catalogue.'}
         </p>
       </div>
 
-      {/* Form Content */}
-      <form onSubmit={handleSubmit} className="p-6 pt-3 space-y-4">
-        {/* Error alert */}
+      {/* Formulaire avec tailles adaptées au mobile */}
+      <form onSubmit={handleSubmit} className="p-4 sm:p-6 pt-2 space-y-4">
+        {/* Alerte erreur */}
         {error && (
-          <div className="flex items-start gap-2.5 p-3 rounded-xl bg-rose-50 border border-rose-200/80 text-rose-700 text-xs animate-in fade-in">
+          <div className="flex items-start gap-2.5 p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs animate-in fade-in">
             <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-rose-500" />
             <span className="leading-snug">{error}</span>
           </div>
         )}
 
-        {/* Name input (only for register) */}
+        {/* Champ Nom (Inscription) */}
         {mode === 'register' && (
           <div>
             <label className="block text-xs font-semibold text-slate-700 mb-1.5">
@@ -167,13 +167,13 @@ export default function AuthForm({
                 value={nom}
                 onChange={(e) => setNom(e.target.value)}
                 placeholder="Ex: Alexandre Martin"
-                className="w-full text-xs pl-10 pr-3.5 py-2.5 bg-slate-50/70 border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:bg-white focus:border-indigo-500 transition"
+                className="w-full text-sm sm:text-xs pl-10 pr-3.5 py-3 sm:py-2.5 bg-slate-50/70 border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:bg-white transition"
               />
             </div>
           </div>
         )}
 
-        {/* Email input */}
+        {/* Champ Email */}
         <div>
           <label className="block text-xs font-semibold text-slate-700 mb-1.5">
             Adresse email <span className="text-rose-500">*</span>
@@ -186,7 +186,7 @@ export default function AuthForm({
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder={mode === 'login' ? 'admin@biblio.com ou etudiant@univ.fr' : 'etudiant@univ.fr'}
-              className="w-full text-xs pl-10 pr-3.5 py-2.5 bg-slate-50/70 border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:bg-white focus:border-indigo-500 transition"
+              className="w-full text-sm sm:text-xs pl-10 pr-3.5 py-3 sm:py-2.5 bg-slate-50/70 border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:bg-white transition"
             />
           </div>
           {mode === 'login' && (
@@ -196,7 +196,7 @@ export default function AuthForm({
           )}
         </div>
 
-        {/* Password input */}
+        {/* Champ Mot de passe */}
         <div>
           <label className="block text-xs font-semibold text-slate-700 mb-1.5">
             Mot de passe
@@ -208,24 +208,24 @@ export default function AuthForm({
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="••••••••"
-              className="w-full text-xs pl-10 pr-3.5 py-2.5 bg-slate-50/70 border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:bg-white focus:border-indigo-500 transition"
+              className="w-full text-sm sm:text-xs pl-10 pr-3.5 py-3 sm:py-2.5 bg-slate-50/70 border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:bg-white transition"
             />
           </div>
         </div>
 
-        {/* Role badge preview in register mode */}
+        {/* Badge rôle pour inscription */}
         {mode === 'register' && (
-          <div className="flex items-center gap-2 p-2.5 rounded-xl bg-blue-50/70 border border-blue-200/60 text-blue-900 text-[11px]">
+          <div className="flex items-center gap-2 p-2.5 rounded-xl bg-blue-50/70 border border-blue-200/60 text-blue-900 text-xs">
             <GraduationCap className="w-4 h-4 text-blue-600 shrink-0" />
             <span>Votre compte sera automatiquement configuré avec le rôle <strong>ÉTUDIANT</strong>.</span>
           </div>
         )}
 
-        {/* Submit button */}
+        {/* Bouton de validation tactile */}
         <button
           type="submit"
           disabled={isLoading}
-          className="w-full mt-2 flex items-center justify-center gap-2 py-2.5 px-4 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-xl shadow-md shadow-indigo-200 transition active:scale-[0.99] disabled:opacity-50"
+          className="w-full mt-2 flex items-center justify-center gap-2 py-3.5 sm:py-2.5 px-4 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-sm sm:text-xs font-semibold rounded-xl shadow-md shadow-indigo-200 transition active:scale-[0.99] disabled:opacity-50 touch-manipulation"
         >
           {isLoading ? (
             <span>Chargement...</span>
@@ -242,29 +242,29 @@ export default function AuthForm({
           )}
         </button>
 
-        {/* Fast dev test helpers */}
+        {/* Raccourcis de test préremplis (flex-col sur très petit écran, 2 colonnes dès sm) */}
         {showAdminHelper && (
           <div className="pt-3 border-t border-slate-100">
-            <div className="text-[11px] font-semibold text-slate-400 mb-2 flex items-center gap-1">
-              <span>Identifiants de test préremplis :</span>
+            <div className="text-[11px] font-semibold text-slate-400 mb-2">
+              Identifiants de test préremplis :
             </div>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               <button
                 type="button"
                 onClick={handleFillAdmin}
-                className="flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 text-[11px] font-medium text-slate-700 transition"
+                className="flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 active:bg-slate-200 text-xs font-medium text-slate-700 transition touch-manipulation"
               >
-                <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-                <span className="truncate">Admin (Gestionnaire)</span>
+                <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>Admin (Gestionnaire)</span>
               </button>
 
               <button
                 type="button"
                 onClick={handleFillStudent}
-                className="flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 text-[11px] font-medium text-slate-700 transition"
+                className="flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 active:bg-slate-200 text-xs font-medium text-slate-700 transition touch-manipulation"
               >
-                <GraduationCap className="w-3.5 h-3.5 text-blue-600" />
-                <span className="truncate">Étudiant démo</span>
+                <GraduationCap className="w-4 h-4 text-blue-600 shrink-0" />
+                <span>Étudiant démo</span>
               </button>
             </div>
           </div>

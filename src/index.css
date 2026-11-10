@@ -1,1 +1,42 @@
 @import "tailwindcss";
+
+/* Styles pour le scanner html5-qrcode */
+#reader {
+  border: none !important;
+  width: 100% !important;
+}
+
+#reader video {
+  width: 100% !important;
+  max-height: 280px !important;
+  object-fit: cover !important;
+  border-radius: 0.75rem !important;
+}
+
+#reader__scan_region {
+  background: transparent !important;
+}
+
+#reader__dashboard {
+  background: transparent !important;
+  padding: 0 !important;
+}
+
+@keyframes scanLaser {
+  0% {
+    top: 10%;
+    opacity: 0.8;
+  }
+  50% {
+    top: 85%;
+    opacity: 1;
+  }
+  100% {
+    top: 10%;
+    opacity: 0.8;
+  }
+}
+
+.scan-laser-line {
+  animation: scanLaser 2s ease-in-out infinite;
+}
