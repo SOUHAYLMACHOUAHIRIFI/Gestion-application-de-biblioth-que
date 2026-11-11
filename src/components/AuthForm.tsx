@@ -5,25 +5,21 @@ import {
   Mail,
   Lock,
   User as UserIcon,
-  ShieldCheck,
   GraduationCap,
   Sparkles,
   ArrowRight,
   AlertCircle
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { DEFAULT_ADMIN } from '../types';
 
 interface AuthFormProps {
   onSuccess?: () => void;
   initialMode?: 'login' | 'register';
-  showAdminHelper?: boolean;
 }
 
 export default function AuthForm({
   onSuccess,
   initialMode = 'login',
-  showAdminHelper = true,
 }: AuthFormProps) {
   const { login, register } = useAuth();
 
@@ -42,7 +38,7 @@ export default function AuthForm({
     try {
       if (mode === 'login') {
         if (!email.trim()) {
-          setError('Veuillez saisir votre adresse email.');
+          setError('Veuillez saisir votre adresse email USMBA.');
           setIsLoading(false);
           return;
         }
@@ -54,7 +50,7 @@ export default function AuthForm({
           return;
         }
         if (!email.trim()) {
-          setError('Veuillez saisir votre adresse email universitaire.');
+          setError('Veuillez saisir votre adresse email universitaire USMBA.');
           setIsLoading(false);
           return;
         }
@@ -68,25 +64,11 @@ export default function AuthForm({
       if (err instanceof Error) {
         setError(err.message);
       } else {
-        setError('Une erreur est survenue lors de l\'authentification.');
+        setError("Une erreur est survenue lors de l'authentification.");
       }
     } finally {
       setIsLoading(false);
     }
-  };
-
-  const handleFillAdmin = () => {
-    setMode('login');
-    setEmail(DEFAULT_ADMIN.email);
-    setPassword(DEFAULT_ADMIN.motDePasse);
-    setError(null);
-  };
-
-  const handleFillStudent = () => {
-    setMode('login');
-    setEmail('etudiant@univ.fr');
-    setPassword('etudiant123');
-    setError(null);
   };
 
   return (
@@ -133,13 +115,13 @@ export default function AuthForm({
             {mode === 'login' ? <LogIn className="w-5 h-5" /> : <UserPlus className="w-5 h-5" />}
           </div>
           <h2 className="text-base sm:text-lg font-bold text-slate-900">
-            {mode === 'login' ? 'Accéder à votre compte' : 'Créer un compte étudiant'}
+            {mode === 'login' ? 'Portail Bibliothèque USMBA' : 'Créer un compte étudiant USMBA'}
           </h2>
         </div>
         <p className="text-xs text-slate-500 leading-relaxed">
           {mode === 'login'
-            ? 'Connectez-vous avec vos identifiants étudiant ou gestionnaire.'
-            : 'Inscription réservée aux étudiants pour consulter le catalogue.'}
+            ? 'Connectez-vous avec votre adresse institutionnelle (ex: admin@usmba.ac.ma ou etudiant@usmba.ac.ma).'
+            : 'Inscription réservée aux étudiants universitaires USMBA pour consulter le fonds documentaire.'}
         </p>
       </div>
 
@@ -166,7 +148,7 @@ export default function AuthForm({
                 required
                 value={nom}
                 onChange={(e) => setNom(e.target.value)}
-                placeholder="Ex: Alexandre Martin"
+                placeholder="Ex: Youssef El Amrani"
                 className="w-full text-sm sm:text-xs pl-10 pr-3.5 py-3 sm:py-2.5 bg-slate-50/70 border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:bg-white transition"
               />
             </div>
@@ -176,7 +158,7 @@ export default function AuthForm({
         {/* Champ Email */}
         <div>
           <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-            Adresse email <span className="text-rose-500">*</span>
+            Adresse email institutionnelle <span className="text-rose-500">*</span>
           </label>
           <div className="relative">
             <Mail className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -185,14 +167,15 @@ export default function AuthForm({
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder={mode === 'login' ? 'admin@biblio.com ou etudiant@univ.fr' : 'etudiant@univ.fr'}
+              placeholder={mode === 'login' ? 'admin@usmba.ac.ma ou etudiant@usmba.ac.ma' : 'etudiant@usmba.ac.ma'}
               className="w-full text-sm sm:text-xs pl-10 pr-3.5 py-3 sm:py-2.5 bg-slate-50/70 border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:bg-white transition"
             />
           </div>
           {mode === 'login' && (
-            <p className="text-[11px] text-slate-400 mt-1">
-              Les emails contenant <code className="text-indigo-600 font-mono font-medium">admin</code> accèdent à l'espace gestionnaire.
-            </p>
+            <div className="mt-1.5 flex items-center justify-between text-[11px] text-slate-500">
+              <span>Gestionnaire : <code className="text-indigo-600 font-mono font-medium">admin@usmba.ac.ma</code></span>
+              <span>Étudiant : <code className="text-indigo-600 font-mono font-medium">etudiant@usmba.ac.ma</code></span>
+            </div>
           )}
         </div>
 
@@ -217,7 +200,7 @@ export default function AuthForm({
         {mode === 'register' && (
           <div className="flex items-center gap-2 p-2.5 rounded-xl bg-blue-50/70 border border-blue-200/60 text-blue-900 text-xs">
             <GraduationCap className="w-4 h-4 text-blue-600 shrink-0" />
-            <span>Votre compte sera automatiquement configuré avec le rôle <strong>ÉTUDIANT</strong>.</span>
+            <span>Votre compte sera automatiquement configuré avec le rôle <strong>ÉTUDIANT USMBA</strong>.</span>
           </div>
         )}
 
@@ -225,7 +208,7 @@ export default function AuthForm({
         <button
           type="submit"
           disabled={isLoading}
-          className="w-full mt-2 flex items-center justify-center gap-2 py-3.5 sm:py-2.5 px-4 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-sm sm:text-xs font-semibold rounded-xl shadow-md shadow-indigo-200 transition active:scale-[0.99] disabled:opacity-50 touch-manipulation"
+          className="w-full mt-2 flex items-center justify-center gap-2 py-3.5 sm:py-2.5 px-4 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-sm sm:text-xs font-semibold rounded-xl shadow-md shadow-indigo-200 transition active:scale-[0.99] disabled:opacity-50 touch-manipulation cursor-pointer"
         >
           {isLoading ? (
             <span>Chargement...</span>
@@ -241,34 +224,6 @@ export default function AuthForm({
             </>
           )}
         </button>
-
-        {/* Raccourcis de test préremplis (flex-col sur très petit écran, 2 colonnes dès sm) */}
-        {showAdminHelper && (
-          <div className="pt-3 border-t border-slate-100">
-            <div className="text-[11px] font-semibold text-slate-400 mb-2">
-              Identifiants de test préremplis :
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={handleFillAdmin}
-                className="flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 active:bg-slate-200 text-xs font-medium text-slate-700 transition touch-manipulation"
-              >
-                <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
-                <span>Admin (Gestionnaire)</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={handleFillStudent}
-                className="flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 active:bg-slate-200 text-xs font-medium text-slate-700 transition touch-manipulation"
-              >
-                <GraduationCap className="w-4 h-4 text-blue-600 shrink-0" />
-                <span>Étudiant démo</span>
-              </button>
-            </div>
-          </div>
-        )}
       </form>
     </div>
   );

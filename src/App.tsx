@@ -12,7 +12,7 @@ import StudentCatalog from './components/StudentCatalog';
 import ManagerDashboard from './components/ManagerDashboard';
 import { Book, mockBooks as initialMockBooks } from './types';
 
-const BOOKS_STORAGE_KEY = 'bibliotech_catalog_books';
+const BOOKS_STORAGE_KEY = 'bibliotech_usmba_catalog_v3';
 
 function MainLayout() {
   const { user, logout } = useAuth();
@@ -20,7 +20,11 @@ function MainLayout() {
     try {
       const saved = localStorage.getItem(BOOKS_STORAGE_KEY);
       if (saved) {
-        return JSON.parse(saved) as Book[];
+        const parsed = JSON.parse(saved) as Book[];
+        // Vérifie qu'il s'agit bien de la collection réelle
+        if (Array.isArray(parsed) && parsed.length > 0 && parsed[0].isbn.startsWith('978-0262')) {
+          return parsed;
+        }
       }
     } catch (e) {
       console.error('Erreur chargement inventaire :', e);
@@ -36,9 +40,14 @@ function MainLayout() {
     }
   }, [books]);
 
+  // Forcer le défilement au début de la page au chargement et lors des connexions/déconnexions
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+  }, [user]);
+
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 flex flex-col font-sans">
-      {/* Header fixe responsive : empilé verticalement sur mobile, horizontal sur écran >= 640px */}
+      {/* Header fixe responsive */}
       <header className="fixed top-0 left-0 right-0 z-50 bg-white/95 backdrop-blur-md border-b border-slate-200/90 shadow-xs">
         <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-2 sm:py-0 sm:h-16 flex flex-col sm:flex-row items-center justify-between gap-2 sm:gap-4">
           {/* Logo et Nom de l'application */}
@@ -51,8 +60,8 @@ function MainLayout() {
                 <span className="font-extrabold text-base sm:text-lg text-slate-900 tracking-tight">
                   Biblio<span className="text-indigo-600">Tech</span>
                 </span>
-                <span className="hidden md:inline-block ml-2 text-xs font-semibold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">
-                  Scolaire
+                <span className="ml-2 text-xs font-semibold text-indigo-700 bg-indigo-50 border border-indigo-100 px-2 py-0.5 rounded-full">
+                  USMBA
                 </span>
               </div>
             </div>
@@ -73,7 +82,7 @@ function MainLayout() {
                 )}
                 <button
                   onClick={logout}
-                  className="p-1.5 text-rose-600 hover:bg-rose-50 active:bg-rose-100 rounded-lg transition touch-manipulation"
+                  className="p-1.5 text-rose-600 hover:bg-rose-50 active:bg-rose-100 rounded-lg transition touch-manipulation cursor-pointer"
                   title="Déconnexion"
                 >
                   <LogOut className="w-4 h-4" />
@@ -95,17 +104,17 @@ function MainLayout() {
                   ) : (
                     <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-100 text-blue-800 tracking-wide uppercase">
                       <GraduationCap className="w-3.5 h-3.5" />
-                      ETUDIANT
+                      ÉTUDIANT
                     </span>
                   )}
-                  <span className="text-xs font-semibold text-slate-700 max-w-[140px] truncate md:max-w-none">
+                  <span className="text-xs font-semibold text-slate-700 max-w-[160px] truncate md:max-w-none">
                     {user.nom}
                   </span>
                 </div>
 
                 <button
                   onClick={logout}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-rose-600 hover:text-white bg-white hover:bg-rose-600 active:bg-rose-700 border border-rose-200 rounded-full transition duration-150 shadow-2xs touch-manipulation"
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-rose-600 hover:text-white bg-white hover:bg-rose-600 active:bg-rose-700 border border-rose-200 rounded-full transition duration-150 shadow-2xs touch-manipulation cursor-pointer"
                   title="Se déconnecter"
                 >
                   <LogOut className="w-3.5 h-3.5" />
@@ -114,32 +123,32 @@ function MainLayout() {
               </div>
             ) : (
               <div className="flex items-center gap-2 text-xs font-medium text-slate-500 bg-slate-100 px-3 py-1.5 rounded-full border border-slate-200">
-                <span className="w-2 h-2 rounded-full bg-amber-400" />
-                <span>Non connecté</span>
+                <span className="w-2 h-2 rounded-full bg-slate-400" />
+                <span>Portail Universitaire USMBA</span>
               </div>
             )}
           </div>
         </div>
       </header>
 
-      {/* Contenu principal avec padding supérieur adapté à la hauteur du header mobile/desktop */}
+      {/* Contenu principal */}
       <main className="flex-1 max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 pt-20 sm:pt-24 pb-12 w-full flex flex-col">
         {/* 1. Point d'entrée unique si non connecté */}
         {!user && (
-          <div className="flex-1 flex flex-col items-center justify-center py-6 sm:py-10">
+          <div className="w-full flex-1 flex flex-col items-center pt-2 sm:pt-6 pb-12">
             <div className="text-center mb-6 space-y-2 px-2">
               <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-50 border border-indigo-100 text-indigo-700 text-xs font-semibold">
                 <Sparkles className="w-3.5 h-3.5" />
-                Portail Bibliothèque Scolaire
+                Bibliothèque Universitaire • USMBA
               </div>
               <h1 className="text-xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
-                Bienvenue sur BiblioTech
+                Portail Bibliothèque BiblioTech
               </h1>
               <p className="text-xs sm:text-sm text-slate-500 max-w-md mx-auto">
-                Connectez-vous pour accéder à votre espace de consultation ou d'administration.
+                Connectez-vous avec vos identifiants institutionnels pour accéder au catalogue universitaire ou à l'espace gestionnaire.
               </p>
             </div>
-            <AuthForm showAdminHelper={true} />
+            <AuthForm />
           </div>
         )}
 
@@ -149,13 +158,13 @@ function MainLayout() {
             <div className="bg-gradient-to-r from-blue-900 via-indigo-900 to-slate-900 rounded-2xl p-4 sm:p-6 text-white shadow-lg">
               <div className="flex items-center gap-2 text-xs font-medium text-blue-200 mb-1">
                 <GraduationCap className="w-4 h-4 text-blue-300" />
-                Espace Étudiant
+                Espace Étudiant • USMBA
               </div>
               <h1 className="text-lg sm:text-2xl font-bold">
-                Catalogue de Consultation
+                Fonds Documentaire Universitaire
               </h1>
               <p className="text-xs sm:text-sm text-blue-200 mt-1">
-                Bonjour {user.nom}. Consultez librement la collection d'ouvrages et vérifiez les disponibilités.
+                Bienvenue {user.nom}. Consultez librement la collection d'ouvrages réels et vérifiez leur disponibilité en salle ou pour emprunt.
               </p>
             </div>
 
@@ -169,13 +178,13 @@ function MainLayout() {
             <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 rounded-2xl p-4 sm:p-6 text-white shadow-lg">
               <div className="flex items-center gap-2 text-xs font-medium text-emerald-400 mb-1">
                 <ShieldCheck className="w-4 h-4 text-emerald-400" />
-                Espace Gestionnaire
+                Espace Gestionnaire • USMBA
               </div>
               <h1 className="text-lg sm:text-2xl font-bold">
-                Administration de la Bibliothèque
+                Gestion & Inventaire de la Bibliothèque
               </h1>
               <p className="text-xs sm:text-sm text-slate-300 mt-1">
-                Gestion des disponibilités, ajouts d'ouvrages par scan ISBN et modifications de fiches.
+                Contrôle des disponibilités en rayon en 1 clic, ajouts d'ouvrages par scan ISBN et mise à jour des notices bibliographiques.
               </p>
             </div>
 
@@ -187,7 +196,7 @@ function MainLayout() {
       {/* Footer responsive */}
       <footer className="bg-white border-t border-slate-200 py-4 sm:py-6 text-center text-xs text-slate-500">
         <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2 sm:gap-3">
-          <p>BiblioTech • Système de gestion de bibliothèque scolaire</p>
+          <p>BiblioTech • Bibliothèque Universitaire Sidi Mohamed Ben Abdellah (USMBA)</p>
           <div className="flex items-center gap-2 sm:gap-4 text-slate-400 text-[11px] sm:text-xs">
             <span>
               Session : <strong className="text-slate-600">{user ? user.email : 'Aucun'}</strong>

@@ -9,7 +9,7 @@ interface AuthContextType {
   isAuthenticated: boolean;
 }
 
-const STORAGE_KEY = 'bibliotech_user_session';
+const STORAGE_KEY = 'bibliotech_usmba_user_session';
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
@@ -41,21 +41,28 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   /**
    * Connexion de l'utilisateur
-   * Si l'email est 'admin@biblio.com' ou contient 'admin' -> rôle GESTIONNAIRE
-   * Sinon -> rôle ETUDIANT
+   * - admin@usmba.ac.ma ou contenant 'admin' -> rôle GESTIONNAIRE
+   * - etudiant@usmba.ac.ma ou tout autre compte -> rôle ETUDIANT
    */
   const login = (email: string, _motDePasse?: string): boolean => {
     const cleanEmail = email.trim().toLowerCase();
-    const isAdmin = cleanEmail === 'admin@biblio.com' || cleanEmail.includes('admin');
+    const isAdmin = cleanEmail === 'admin@usmba.ac.ma' || cleanEmail.includes('admin');
     const role: Role = isAdmin ? 'GESTIONNAIRE' : 'ETUDIANT';
 
-    // Extraction d'un nom par défaut à partir de l'email si non spécifié
-    const inferredName = isAdmin
-      ? 'Gestionnaire Bibliothèque'
-      : cleanEmail
-          .split('@')[0]
-          .replace(/[._-]/g, ' ')
-          .replace(/\b\w/g, (c) => c.toUpperCase());
+    // Nom par défaut selon l'adresse email
+    let inferredName = '';
+    if (cleanEmail === 'admin@usmba.ac.ma') {
+      inferredName = 'Administrateur USMBA';
+    } else if (cleanEmail === 'etudiant@usmba.ac.ma') {
+      inferredName = 'Étudiant USMBA';
+    } else if (isAdmin) {
+      inferredName = 'Gestionnaire Bibliothèque';
+    } else {
+      inferredName = cleanEmail
+        .split('@')[0]
+        .replace(/[._-]/g, ' ')
+        .replace(/\b\w/g, (c) => c.toUpperCase());
+    }
 
     const loggedUser: User = {
       id: `usr_${Date.now()}`,
@@ -69,7 +76,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   /**
-   * Inscription d'un nouvel utilisateur (crée un rôle ETUDIANT et connecte)
+   * Inscription d'un nouvel utilisateur (crée un compte ETUDIANT et connecte)
    */
   const register = (nom: string, email: string, _motDePasse?: string): boolean => {
     const cleanEmail = email.trim().toLowerCase();
@@ -77,7 +84,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       id: `usr_${Date.now()}`,
       email: cleanEmail,
       role: 'ETUDIANT',
-      nom: nom.trim() || 'Étudiant',
+      nom: nom.trim() || 'Étudiant USMBA',
     };
 
     setUser(newUser);
