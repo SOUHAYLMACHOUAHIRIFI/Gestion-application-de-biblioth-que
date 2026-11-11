@@ -21,6 +21,39 @@ export interface Book {
   couvertureUrl?: string;
 }
 
+export type StatutEmprunt = 'EN_COURS' | 'EN_RETARD' | 'RETOURNE';
+
+export interface NotificationRappel {
+  id: string;
+  empruntId: string;
+  studentEmail: string;
+  studentNom: string;
+  titreLivre: string;
+  dateEnvoi: string; // Ex: "11/11/2026 à 09:30:15"
+  type: 'RAPPEL_RETARD' | 'AVERTISSEMENT' | 'URGENT';
+  message: string;
+  lu: boolean;
+}
+
+export interface EmpruntLivre {
+  id: string;
+  bookId: string;
+  titreLivre: string;
+  isbnLivre: string;
+  coteLivre?: string;
+  studentId: string;
+  studentNom: string;
+  studentEmail: string;
+  dateEmprunt: string; // Date et heure exacte ISO
+  dateEmpruntAffichee: string; // Ex: "03/11/2026 à 10:14:22"
+  dateRetourPrevue: string; // Date d'échéance ISO
+  dateRetourPrevueAffichee: string; // Ex: "10/11/2026"
+  dateRetourEffective?: string;
+  dateRetourEffectiveAffichee?: string;
+  statut: StatutEmprunt;
+  notifications: NotificationRappel[];
+}
+
 export interface UserCredentials {
   email: string;
   motDePasse: string;
@@ -161,5 +194,68 @@ export const mockBooks: Book[] = [
     editeur: 'Dunod',
     disponible: false,
     description: "Guide pédagogique de référence couvrant la stéréochimie, les mécanismes réactionnels fondamentaux (substitutions, éliminations, additions), les orbitales moléculaires et la réactivité des grandes familles fonctionnelles.",
+  },
+];
+
+export const initialMockLoans: EmpruntLivre[] = [
+  {
+    id: 'emp_01',
+    bookId: 'b3',
+    titreLivre: 'Modern Operating Systems (Systèmes d’exploitation)',
+    isbnLivre: '978-0133591620',
+    coteLivre: 'SYS-TAN-02',
+    studentId: 'usr_etudiant_01',
+    studentNom: 'Étudiant USMBA (Youssef El Amrani)',
+    studentEmail: 'etudiant@usmba.ac.ma',
+    dateEmprunt: '2026-11-03T10:14:22.000Z',
+    dateEmpruntAffichee: '03/11/2026 à 10:14:22',
+    dateRetourPrevue: '2026-11-10T23:59:59.000Z',
+    dateRetourPrevueAffichee: '10/11/2026',
+    statut: 'EN_RETARD',
+    notifications: [
+      {
+        id: 'notif_01',
+        empruntId: 'emp_01',
+        studentEmail: 'etudiant@usmba.ac.ma',
+        studentNom: 'Étudiant USMBA',
+        titreLivre: 'Modern Operating Systems (Systèmes d’exploitation)',
+        dateEnvoi: '11/11/2026 à 08:30:00',
+        type: 'RAPPEL_RETARD',
+        message: "Rappel automatique : La date de retour de l'ouvrage 'Modern Operating Systems' était fixée au 10/11/2026. Merci de le restituer à l'accueil de la bibliothèque dans les plus brefs délais.",
+        lu: false,
+      },
+    ],
+  },
+  {
+    id: 'emp_02',
+    bookId: 'b5',
+    titreLivre: 'Design Patterns : Les 23 modèles de conception réutilisables',
+    isbnLivre: '978-2744070907',
+    coteLivre: 'GL-GOF-03',
+    studentId: 'usr_etudiant_02',
+    studentNom: 'Fatima Zahra Bennani',
+    studentEmail: 'f.bennani@usmba.ac.ma',
+    dateEmprunt: '2026-11-08T14:45:10.000Z',
+    dateEmpruntAffichee: '08/11/2026 à 14:45:10',
+    dateRetourPrevue: '2026-11-22T23:59:59.000Z',
+    dateRetourPrevueAffichee: '22/11/2026',
+    statut: 'EN_COURS',
+    notifications: [],
+  },
+  {
+    id: 'emp_03',
+    bookId: 'b10',
+    titreLivre: 'Chimie organique : Cours et exercices corrigés',
+    isbnLivre: '978-2100725830',
+    coteLivre: 'CHIM-ARN-02',
+    studentId: 'usr_etudiant_03',
+    studentNom: 'Mehdi Alami',
+    studentEmail: 'm.alami@usmba.ac.ma',
+    dateEmprunt: '2026-10-25T11:20:00.000Z',
+    dateEmpruntAffichee: '25/10/2026 à 11:20:00',
+    dateRetourPrevue: '2026-11-05T23:59:59.000Z',
+    dateRetourPrevueAffichee: '05/11/2026',
+    statut: 'EN_RETARD',
+    notifications: [],
   },
 ];

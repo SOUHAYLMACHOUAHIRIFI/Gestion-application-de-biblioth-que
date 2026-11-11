@@ -4,24 +4,35 @@ import {
   LogOut,
   ShieldCheck,
   GraduationCap,
-  Sparkles
+  Sparkles,
+  Clock,
+  AlertTriangle,
+  Bell
 } from 'lucide-react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import AuthForm from './components/AuthForm';
 import StudentCatalog from './components/StudentCatalog';
 import ManagerDashboard from './components/ManagerDashboard';
-import { Book, mockBooks as initialMockBooks } from './types';
+import {
+  Book,
+  mockBooks as initialMockBooks,
+  EmpruntLivre,
+  NotificationRappel,
+  initialMockLoans
+} from './types';
 
-const BOOKS_STORAGE_KEY = 'bibliotech_usmba_catalog_v3';
+const BOOKS_STORAGE_KEY = 'bibliotech_usmba_catalog_v4';
+const LOANS_STORAGE_KEY = 'bibliotech_usmba_loans_v4';
 
 function MainLayout() {
   const { user, logout } = useAuth();
+
+  // 1. Inventaire des livres
   const [books, setBooks] = useState<Book[]>(() => {
     try {
       const saved = localStorage.getItem(BOOKS_STORAGE_KEY);
       if (saved) {
         const parsed = JSON.parse(saved) as Book[];
-        // Vérifie qu'il s'agit bien de la collection réelle
         if (Array.isArray(parsed) && parsed.length > 0 && parsed[0].isbn.startsWith('978-0262')) {
           return parsed;
         }
@@ -32,6 +43,23 @@ function MainLayout() {
     return initialMockBooks;
   });
 
+  // 2. Registre des emprunts & retards
+  const [loans, setLoans] = useState<EmpruntLivre[]>(() => {
+    try {
+      const saved = localStorage.getItem(LOANS_STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved) as EmpruntLivre[];
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed;
+        }
+      }
+    } catch (e) {
+      console.error('Erreur chargement emprunts :', e);
+    }
+    return initialMockLoans;
+  });
+
+  // Sauvegardes localStorage
   useEffect(() => {
     try {
       localStorage.setItem(BOOKS_STORAGE_KEY, JSON.stringify(books));
@@ -40,10 +68,154 @@ function MainLayout() {
     }
   }, [books]);
 
-  // Forcer le défilement au début de la page au chargement et lors des connexions/déconnexions
+  useEffect(() => {
+    try {
+      localStorage.setItem(LOANS_STORAGE_KEY, JSON.stringify(loans));
+    } catch (e) {
+      console.error('Erreur sauvegarde emprunts :', e);
+    }
+  }, [loans]);
+
+  // Forcer le défilement au début de la page
   useEffect(() => {
     window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
   }, [user]);
+
+  // Action : Enregistrer un nouvel emprunt avec date et heure exacte
+  const handleCreateLoan = (
+    bookId: string,
+    studentEmail: string,
+    studentNom: string,
+    dureeJours: number = 14
+  ) => {
+    const targetBook = books.find((b) => b.id === bookId);
+    if (!targetBook) return;
+
+    const now = new Date();
+    const dateEmpruntAffichee =
+      now.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' }) +
+      ' à ' +
+      now.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+    const echeance = new Date(now.getTime() + dureeJours * 24 * 60 * 60 * 1000);
+    const dateRetourPrevueAffichee = echeance.toLocaleDateString('fr-FR', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+    });
+
+    const newLoan: EmpruntLivre = {
+      id: `emp_${Date.now()}`,
+      bookId: targetBook.id,
+      titreLivre: targetBook.titre,
+      isbnLivre: targetBook.isbn,
+      coteLivre: targetBook.cote,
+      studentId: `usr_${Date.now()}`,
+      studentNom: studentNom || 'Étudiant USMBA',
+      studentEmail: studentEmail || 'etudiant@usmba.ac.ma',
+      dateEmprunt: now.toISOString(),
+      dateEmpruntAffichee,
+      dateRetourPrevue: echeance.toISOString(),
+      dateRetourPrevueAffichee,
+      statut: 'EN_COURS',
+      notifications: [],
+    };
+
+    setLoans((prev) => [newLoan, ...prev]);
+
+    // Marquer l'ouvrage comme non disponible dans le catalogue
+    setBooks((prev) =>
+      prev.map((b) => (b.id === bookId ? { ...b, disponible: false } : b))
+    );
+  };
+
+  // Action : Enregistrer la restitution d'un livre (retour en rayon)
+  const handleReturnBook = (loanId: string) => {
+    const targetLoan = loans.find((l) => l.id === loanId);
+    if (!targetLoan) return;
+
+    const now = new Date();
+    const dateRetourEffectiveAffichee =
+      now.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' }) +
+      ' à ' +
+      now.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+    setLoans((prev) =>
+      prev.map((l) =>
+        l.id === loanId
+          ? {
+              ...l,
+              statut: 'RETOURNE',
+              dateRetourEffective: now.toISOString(),
+              dateRetourEffectiveAffichee,
+            }
+          : l
+      )
+    );
+
+    // Remettre le livre en disponibilité
+    setBooks((prev) =>
+      prev.map((b) => (b.id === targetLoan.bookId ? { ...b, disponible: true } : b))
+    );
+  };
+
+  // Action : Envoyer une notification de rappel à l'étudiant
+  const handleSendNotification = (
+    loanId: string,
+    message: string,
+    type: 'RAPPEL_RETARD' | 'AVERTISSEMENT' | 'URGENT'
+  ) => {
+    const targetLoan = loans.find((l) => l.id === loanId);
+    if (!targetLoan) return;
+
+    const now = new Date();
+    const dateEnvoi =
+      now.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' }) +
+      ' à ' +
+      now.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+    const newNotif: NotificationRappel = {
+      id: `notif_${Date.now()}`,
+      empruntId: loanId,
+      studentEmail: targetLoan.studentEmail,
+      studentNom: targetLoan.studentNom,
+      titreLivre: targetLoan.titreLivre,
+      dateEnvoi,
+      type,
+      message,
+      lu: false,
+    };
+
+    setLoans((prev) =>
+      prev.map((l) =>
+        l.id === loanId
+          ? {
+              ...l,
+              notifications: [newNotif, ...l.notifications],
+            }
+          : l
+      )
+    );
+  };
+
+  // Action : Marquer une notification comme lue par l'étudiant
+  const handleMarkNotificationRead = (notificationId: string) => {
+    setLoans((prev) =>
+      prev.map((loan) => ({
+        ...loan,
+        notifications: loan.notifications.map((n) =>
+          n.id === notificationId ? { ...n, lu: true } : n
+        ),
+      }))
+    );
+  };
+
+  // Compteurs d'alerte pour le header
+  const countRetardsGlobal = loans.filter((l) => l.statut === 'EN_RETARD').length;
+  const studentUnreadNotifs = loans
+    .filter((l) => user && l.studentEmail.toLowerCase().includes(user.email.split('@')[0]))
+    .flatMap((l) => l.notifications)
+    .filter((n) => !n.lu).length;
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 flex flex-col font-sans">
@@ -100,11 +272,21 @@ function MainLayout() {
                     <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 tracking-wide uppercase">
                       <ShieldCheck className="w-3.5 h-3.5" />
                       GESTIONNAIRE
+                      {countRetardsGlobal > 0 && (
+                        <span className="ml-1 bg-rose-500 text-white rounded-full px-1.5 py-0.2 text-[10px]">
+                          {countRetardsGlobal}
+                        </span>
+                      )}
                     </span>
                   ) : (
                     <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-100 text-blue-800 tracking-wide uppercase">
                       <GraduationCap className="w-3.5 h-3.5" />
                       ÉTUDIANT
+                      {studentUnreadNotifs > 0 && (
+                        <span className="ml-1 bg-rose-500 text-white rounded-full px-1.5 py-0.2 text-[10px] animate-pulse">
+                          {studentUnreadNotifs} rappel
+                        </span>
+                      )}
                     </span>
                   )}
                   <span className="text-xs font-semibold text-slate-700 max-w-[160px] truncate md:max-w-none">
@@ -152,7 +334,7 @@ function MainLayout() {
           </div>
         )}
 
-        {/* 2. Interface Étudiant (Lecture seule) */}
+        {/* 2. Interface Étudiant */}
         {user?.role === 'ETUDIANT' && (
           <div className="space-y-4 sm:space-y-6 animate-in fade-in duration-200">
             <div className="bg-gradient-to-r from-blue-900 via-indigo-900 to-slate-900 rounded-2xl p-4 sm:p-6 text-white shadow-lg">
@@ -164,15 +346,21 @@ function MainLayout() {
                 Fonds Documentaire Universitaire
               </h1>
               <p className="text-xs sm:text-sm text-blue-200 mt-1">
-                Bienvenue {user.nom}. Consultez librement la collection d'ouvrages réels et vérifiez leur disponibilité en salle ou pour emprunt.
+                Bienvenue {user.nom}. Consultez librement la collection d'ouvrages réels, vérifiez vos emprunts en cours et leurs dates limites de retour.
               </p>
             </div>
 
-            <StudentCatalog books={books} />
+            <StudentCatalog
+              books={books}
+              loans={loans}
+              currentStudentEmail={user.email}
+              currentStudentNom={user.nom}
+              onMarkNotificationRead={handleMarkNotificationRead}
+            />
           </div>
         )}
 
-        {/* 3. Interface Gestionnaire (Administration & Inventaire) */}
+        {/* 3. Interface Gestionnaire */}
         {user?.role === 'GESTIONNAIRE' && (
           <div className="space-y-4 sm:space-y-6 animate-in fade-in duration-200">
             <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 rounded-2xl p-4 sm:p-6 text-white shadow-lg">
@@ -184,11 +372,18 @@ function MainLayout() {
                 Gestion & Inventaire de la Bibliothèque
               </h1>
               <p className="text-xs sm:text-sm text-slate-300 mt-1">
-                Contrôle des disponibilités en rayon en 1 clic, ajouts d'ouvrages par scan ISBN et mise à jour des notices bibliographiques.
+                Suivi des emprunts avec date et heure exacte de prise, alertes de retard, envoi de notifications officielles et inventaire du fonds.
               </p>
             </div>
 
-            <ManagerDashboard books={books} onBooksChange={setBooks} />
+            <ManagerDashboard
+              books={books}
+              onBooksChange={setBooks}
+              loans={loans}
+              onCreateLoan={handleCreateLoan}
+              onReturnBook={handleReturnBook}
+              onSendNotification={handleSendNotification}
+            />
           </div>
         )}
       </main>

@@ -18,25 +18,61 @@ import {
   BookOpen,
   Bookmark,
   Building2,
-  Calendar
+  Calendar,
+  Clock,
+  Send,
+  AlertTriangle,
+  Bell,
+  CheckCircle,
+  UserCheck,
+  RotateCcw,
+  ShieldAlert,
+  ArrowUpDown
 } from 'lucide-react';
 import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode';
-import { Book, mockBooks as defaultMockBooks } from '../types';
+import { Book, EmpruntLivre, NotificationRappel, mockBooks as defaultMockBooks } from '../types';
 
 interface ManagerDashboardProps {
   books?: Book[];
   onBooksChange?: (books: Book[]) => void;
+  loans: EmpruntLivre[];
+  onCreateLoan: (bookId: string, studentEmail: string, studentNom: string, dureeJours?: number) => void;
+  onReturnBook: (loanId: string) => void;
+  onSendNotification: (loanId: string, message: string, type: 'RAPPEL_RETARD' | 'AVERTISSEMENT' | 'URGENT') => void;
 }
 
 export default function ManagerDashboard({
   books: initialBooks = defaultMockBooks,
   onBooksChange,
+  loans,
+  onCreateLoan,
+  onReturnBook,
+  onSendNotification,
 }: ManagerDashboardProps) {
   const [books, setBooks] = useState<Book[]>(initialBooks);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('Toutes');
+  const [mainTab, setMainTab] = useState<'inventory' | 'loans'>('inventory');
 
-  // État de la modal d'ajout
+  // État filtres emprunts
+  const [loanSearchTerm, setLoanSearchTerm] = useState('');
+  const [loanFilterStatus, setLoanFilterStatus] = useState<'TOUS' | 'EN_RETARD' | 'EN_COURS' | 'RETOURNE'>('TOUS');
+
+  // Modal d'envoi de notification de retard
+  const [selectedLoanForNotif, setSelectedLoanForNotif] = useState<EmpruntLivre | null>(null);
+  const [notifMessage, setNotifMessage] = useState('');
+  const [notifType, setNotifType] = useState<'RAPPEL_RETARD' | 'AVERTISSEMENT' | 'URGENT'>('RAPPEL_RETARD');
+  const [notifSentSuccess, setNotifSentSuccess] = useState<string | null>(null);
+
+  // Modal d'enregistrement d'emprunt
+  const [isNewLoanModalOpen, setIsNewLoanModalOpen] = useState(false);
+  const [newLoanBookId, setNewLoanBookId] = useState('');
+  const [newLoanStudentEmail, setNewLoanStudentEmail] = useState('');
+  const [newLoanStudentNom, setNewLoanStudentNom] = useState('');
+  const [newLoanDuree, setNewLoanDuree] = useState('14');
+  const [newLoanError, setNewLoanError] = useState<string | null>(null);
+
+  // État de la modal d'ajout livre
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [addTab, setAddTab] = useState<'scan' | 'manual'>('scan');
 
@@ -59,7 +95,7 @@ export default function ManagerDashboard({
   const [formDisponible, setFormDisponible] = useState(true);
   const [formError, setFormError] = useState<string | null>(null);
 
-  // Référence d'instance au scanner
+  // Référence scanner
   const html5QrCodeRef = useRef<Html5Qrcode | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -75,7 +111,7 @@ export default function ManagerDashboard({
     }
   };
 
-  // Toggle switch à un clic pour basculer le statut disponible (true/false)
+  // Bascule rapide statut disponible
   const handleToggleDisponible = (id: string) => {
     const updated = books.map((b) =>
       b.id === id ? { ...b, disponible: !b.disponible } : b
@@ -91,7 +127,7 @@ export default function ManagerDashboard({
     }
   };
 
-  // Gestion du succès du scan
+  // Gestion succès scan
   const handleScanSuccess = (decodedText: string) => {
     const cleanedText = decodedText.trim();
     setFormIsbn(cleanedText);
@@ -104,7 +140,6 @@ export default function ManagerDashboard({
     }, 1000);
   };
 
-  // Arrêt sécurisé de la caméra
   const stopCamera = async () => {
     if (html5QrCodeRef.current) {
       try {
@@ -113,14 +148,13 @@ export default function ManagerDashboard({
         }
         await html5QrCodeRef.current.clear();
       } catch (err) {
-        console.warn("Erreur lors de l'arrêt du scanner :", err);
+        console.warn("Erreur arrêt scanner :", err);
       } finally {
         html5QrCodeRef.current = null;
       }
     }
   };
 
-  // Démarrage de la caméra
   const startCamera = async () => {
     await stopCamera();
 
@@ -167,16 +201,13 @@ export default function ManagerDashboard({
       setCameraStatus('error');
       const errStr = err instanceof Error ? err.message : String(err);
       if (errStr.includes('NotAllowedError') || errStr.includes('Permission')) {
-        setCameraErrorMessage('Accès caméra refusé. Autorisez la caméra ou saisissez le code ISBN.');
-      } else if (errStr.includes('NotFoundError') || errStr.includes('DevicesNotFoundError')) {
-        setCameraErrorMessage('Aucune webcam détectée sur cet appareil. Utilisez la saisie manuelle.');
+        setCameraErrorMessage('Accès caméra refusé. Saisissez le code ISBN manuellement.');
       } else {
-        setCameraErrorMessage("Impossible d'activer la vidéo. Utilisez la saisie manuelle ou l'import d'image.");
+        setCameraErrorMessage("Webcam indisponible. Utilisez la saisie manuelle.");
       }
     }
   };
 
-  // Scan d'un fichier image
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -200,12 +231,11 @@ export default function ManagerDashboard({
       const result = await qrCode.scanFile(file, true);
       handleScanSuccess(result);
     } catch (err) {
-      console.warn('Erreur lecture image code-barres :', err);
-      setCameraErrorMessage('Aucun code-barres lisible trouvé dans cette image. Réessayez avec une photo plus nette.');
+      console.warn('Erreur lecture image :', err);
+      setCameraErrorMessage('Aucun code-barres net détecté. Réessayez ou saisissez manuellement.');
     }
   };
 
-  // Cycle de vie : gérer le démarrage et l'arrêt de la caméra
   useEffect(() => {
     if (isAddModalOpen && addTab === 'scan') {
       const timer = setTimeout(() => {
@@ -221,7 +251,6 @@ export default function ManagerDashboard({
     }
   }, [isAddModalOpen, addTab]);
 
-  // Ouverture modal d'ajout
   const handleOpenAddModal = () => {
     setFormIsbn('');
     setFormTitre('');
@@ -239,13 +268,11 @@ export default function ManagerDashboard({
     setIsAddModalOpen(true);
   };
 
-  // Fermeture modal d'ajout
   const handleCloseAddModal = () => {
     stopCamera();
     setIsAddModalOpen(false);
   };
 
-  // Soumission du formulaire d'ajout
   const handleSaveNewBook = (e: React.FormEvent) => {
     e.preventDefault();
     setFormError(null);
@@ -265,14 +292,13 @@ export default function ManagerDashboard({
       editeur: formEditeur.trim() || undefined,
       annee: formAnnee ? parseInt(formAnnee, 10) : undefined,
       disponible: formDisponible,
-      description: formDescription.trim() || 'Notice bibliographique enregistrée sans résumé détaillé.',
+      description: formDescription.trim() || 'Notice bibliographique enregistrée.',
     };
 
     updateBooks([newBook, ...books]);
     handleCloseAddModal();
   };
 
-  // Ouverture modal d'édition
   const handleOpenEditModal = (book: Book) => {
     setEditingBook(book);
     setFormIsbn(book.isbn);
@@ -287,7 +313,6 @@ export default function ManagerDashboard({
     setFormError(null);
   };
 
-  // Sauvegarde des modifications d'un livre
   const handleSaveEditBook = (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingBook) return;
@@ -317,12 +342,63 @@ export default function ManagerDashboard({
     setEditingBook(null);
   };
 
-  const handleSimulateScan = (isbnSample: string) => {
-    handleScanSuccess(isbnSample);
+  // Préparation de l'envoi de notification
+  const handleOpenNotifModal = (loan: EmpruntLivre) => {
+    setSelectedLoanForNotif(loan);
+    setNotifType(loan.statut === 'EN_RETARD' ? 'RAPPEL_RETARD' : 'AVERTISSEMENT');
+    setNotifMessage(
+      `Bonjour ${loan.studentNom},\n\nLa Bibliothèque Universitaire USMBA vous informe que l'ouvrage "${loan.titreLivre}" emprunté le ${loan.dateEmpruntAffichee} devait être restitué au plus tard le ${loan.dateRetourPrevueAffichee}.\n\nVous êtes actuellement en retard de restitution. Merci de déposer l'ouvrage au guichet de prêt de la BU dans les 24 heures afin d'éviter toute suspension de prêt.\n\nService du Prêt - Bibliothèque Universitaire USMBA`
+    );
   };
 
-  const categories = ['Toutes', ...Array.from(new Set(books.map((b) => b.categorie)))];
+  const handleSendNotifSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedLoanForNotif || !notifMessage.trim()) return;
 
+    onSendNotification(selectedLoanForNotif.id, notifMessage.trim(), notifType);
+    setNotifSentSuccess(`Rappel envoyé avec succès à ${selectedLoanForNotif.studentEmail} !`);
+    setTimeout(() => {
+      setNotifSentSuccess(null);
+      setSelectedLoanForNotif(null);
+    }, 1800);
+  };
+
+  // Enregistrement d'un nouvel emprunt
+  const handleOpenNewLoanModal = () => {
+    const firstAvailable = books.find((b) => b.disponible);
+    setNewLoanBookId(firstAvailable ? firstAvailable.id : '');
+    setNewLoanStudentEmail('etudiant@usmba.ac.ma');
+    setNewLoanStudentNom('Étudiant USMBA');
+    setNewLoanDuree('14');
+    setNewLoanError(null);
+    setIsNewLoanModalOpen(true);
+  };
+
+  const handleSaveNewLoan = (e: React.FormEvent) => {
+    e.preventDefault();
+    setNewLoanError(null);
+
+    if (!newLoanBookId) {
+      setNewLoanError('Veuillez sélectionner un ouvrage disponible.');
+      return;
+    }
+    if (!newLoanStudentEmail.trim()) {
+      setNewLoanError("L'adresse email de l'étudiant est requise.");
+      return;
+    }
+
+    const duree = parseInt(newLoanDuree, 10) || 14;
+    onCreateLoan(newLoanBookId, newLoanStudentEmail.trim(), newLoanStudentNom.trim() || 'Étudiant USMBA', duree);
+    setIsNewLoanModalOpen(false);
+  };
+
+  // Statistiques emprunts
+  const countRetards = loans.filter((l) => l.statut === 'EN_RETARD').length;
+  const countEnCours = loans.filter((l) => l.statut === 'EN_COURS').length;
+  const countTotalNotifs = loans.reduce((acc, l) => acc + l.notifications.length, 0);
+
+  // Filtrage des livres
+  const categories = ['Toutes', ...Array.from(new Set(books.map((b) => b.categorie)))];
   const filteredBooks = books.filter((b) => {
     const q = searchTerm.toLowerCase().trim();
     const matchesSearch =
@@ -336,264 +412,827 @@ export default function ManagerDashboard({
     return matchesSearch && matchesCategory;
   });
 
+  // Filtrage des emprunts
+  const filteredLoans = loans.filter((loan) => {
+    const q = loanSearchTerm.toLowerCase().trim();
+    const matchesSearch =
+      q === '' ||
+      loan.titreLivre.toLowerCase().includes(q) ||
+      loan.studentNom.toLowerCase().includes(q) ||
+      loan.studentEmail.toLowerCase().includes(q) ||
+      loan.isbnLivre.includes(q) ||
+      (loan.coteLivre && loan.coteLivre.toLowerCase().includes(q));
+
+    const matchesStatus =
+      loanFilterStatus === 'TOUS' || loan.statut === loanFilterStatus;
+
+    return matchesSearch && matchesStatus;
+  });
+
   return (
     <div className="w-full space-y-4 sm:space-y-6">
-      {/* Barre d'action supérieure */}
-      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 sm:gap-4 bg-white p-4 sm:p-5 rounded-2xl border border-slate-200/90 shadow-xs">
-        <div className="flex-1 relative">
-          <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
-          <input
-            type="text"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Rechercher par titre, auteur, ISBN ou cote de rangement..."
-            className="w-full text-sm sm:text-xs pl-10 pr-4 py-3 sm:py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:bg-white transition"
-          />
-        </div>
+      {/* Sélecteur d'onglets principal : Inventaire vs Emprunts & Retards */}
+      <div className="flex items-center gap-2 p-1.5 bg-white rounded-2xl border border-slate-200/90 shadow-xs">
+        <button
+          type="button"
+          onClick={() => setMainTab('inventory')}
+          className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-xs sm:text-sm font-semibold transition touch-manipulation cursor-pointer ${
+            mainTab === 'inventory'
+              ? 'bg-indigo-600 text-white shadow-sm font-bold'
+              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+          }`}
+        >
+          <BookOpen className="w-4 h-4" />
+          <span>Fonds & Inventaire ({books.length})</span>
+        </button>
 
-        <div className="flex items-center gap-2 sm:gap-3 shrink-0">
-          <select
-            value={selectedCategory}
-            onChange={(e) => setSelectedCategory(e.target.value)}
-            className="flex-1 sm:flex-none text-xs py-3 sm:py-2.5 px-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-700 focus:outline-hidden focus:ring-2 focus:ring-indigo-500 font-medium touch-manipulation cursor-pointer"
-          >
-            {categories.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </select>
-
-          <button
-            onClick={handleOpenAddModal}
-            className="flex items-center justify-center gap-1.5 px-4 py-3 sm:py-2.5 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-xs font-semibold rounded-xl shadow-sm transition active:scale-95 shrink-0 touch-manipulation cursor-pointer"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Ajouter un ouvrage</span>
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={() => setMainTab('loans')}
+          className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-xs sm:text-sm font-semibold transition touch-manipulation cursor-pointer relative ${
+            mainTab === 'loans'
+              ? 'bg-indigo-600 text-white shadow-sm font-bold'
+              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+          }`}
+        >
+          <Clock className="w-4 h-4" />
+          <span>Gestion des Emprunts & Retards</span>
+          {countRetards > 0 && (
+            <span
+              className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
+                mainTab === 'loans'
+                  ? 'bg-rose-500 text-white'
+                  : 'bg-rose-100 text-rose-700 animate-pulse'
+              }`}
+            >
+              {countRetards} en retard
+            </span>
+          )}
+        </button>
       </div>
 
-      {/* Conteneur Inventaire structuré (sans image) */}
-      <div className="bg-white rounded-2xl border border-slate-200/90 shadow-xs overflow-hidden">
-        {/* Titre du bloc */}
-        <div className="px-4 sm:px-6 py-3.5 sm:py-4 border-b border-slate-200/80 flex items-center justify-between bg-slate-50/70">
-          <div>
-            <h3 className="font-bold text-xs sm:text-sm text-slate-900">
-              Inventaire Bibliographique USMBA
-            </h3>
-            <p className="text-[11px] sm:text-xs text-slate-500">
-              {filteredBooks.length} ouvrage{filteredBooks.length > 1 ? 's' : ''} répertorié{filteredBooks.length > 1 ? 's' : ''} • Contrôle direct des prêts en 1 clic
-            </p>
-          </div>
-          <span className="text-[11px] font-semibold text-indigo-700 bg-indigo-50 border border-indigo-100 px-2.5 py-0.5 rounded-md">
-            Gestion du fonds
-          </span>
-        </div>
-
-        {/* 1. VUE MOBILE EN CARTES STRUCTURÉES (Affichée sur écrans < 640px) */}
-        <div className="block sm:hidden divide-y divide-slate-100">
-          {filteredBooks.length === 0 ? (
-            <div className="py-8 text-center text-xs text-slate-400">
-              Aucun ouvrage ne correspond à votre recherche.
+      {/* ======================= ONGLET 2: GESTION DES EMPRUNTS & RETARDS ======================= */}
+      {mainTab === 'loans' && (
+        <div className="space-y-4 sm:space-y-6 animate-in fade-in duration-150">
+          {/* Cartes de statistiques */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+            <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs space-y-1">
+              <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+                <BookOpen className="w-3.5 h-3.5 text-indigo-600" />
+                Emprunts en cours
+              </span>
+              <div className="text-xl sm:text-2xl font-extrabold text-slate-900">
+                {countEnCours}
+              </div>
+              <p className="text-[11px] text-slate-400">Ouvrages prêtés aux étudiants</p>
             </div>
-          ) : (
-            filteredBooks.map((book) => (
-              <div key={book.id} className="p-4 space-y-3">
-                <div className="flex items-start gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600 shrink-0">
-                    <BookOpen className="w-5 h-5" />
-                  </div>
-                  <div className="min-w-0 flex-1 space-y-1">
-                    <h4 className="font-bold text-sm text-slate-900 leading-snug">
-                      {book.titre}
-                    </h4>
-                    <p className="text-xs text-slate-600 font-medium">
-                      {book.auteur}
-                    </p>
-                    <div className="flex items-center gap-2 flex-wrap pt-0.5">
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-indigo-50 text-indigo-700">
-                        <Layers className="w-3 h-3" />
-                        {book.categorie}
-                      </span>
-                      {book.cote && (
-                        <span className="font-mono text-[10px] text-indigo-700 bg-slate-100 px-1.5 py-0.5 rounded font-bold">
-                          {book.cote}
+
+            <div className="bg-rose-50/70 p-4 rounded-2xl border border-rose-200 shadow-xs space-y-1">
+              <span className="text-[11px] font-semibold text-rose-700 uppercase tracking-wider flex items-center gap-1.5">
+                <AlertTriangle className="w-3.5 h-3.5 text-rose-600" />
+                Ouvrages en retard
+              </span>
+              <div className="text-xl sm:text-2xl font-extrabold text-rose-700">
+                {countRetards}
+              </div>
+              <p className="text-[11px] text-rose-600 font-medium">Nécessitent un rappel</p>
+            </div>
+
+            <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs space-y-1">
+              <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+                <Bell className="w-3.5 h-3.5 text-amber-500" />
+                Rappels envoyés
+              </span>
+              <div className="text-xl sm:text-2xl font-extrabold text-slate-900">
+                {countTotalNotifs}
+              </div>
+              <p className="text-[11px] text-slate-400">Notifications délivrées</p>
+            </div>
+
+            <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs space-y-1">
+              <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+                <CheckCircle className="w-3.5 h-3.5 text-emerald-600" />
+                Total des dossiers
+              </span>
+              <div className="text-xl sm:text-2xl font-extrabold text-slate-900">
+                {loans.length}
+              </div>
+              <p className="text-[11px] text-slate-400">Historique complet</p>
+            </div>
+          </div>
+
+          {/* Barre de filtres et d'action */}
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-white p-4 sm:p-5 rounded-2xl border border-slate-200/90 shadow-xs">
+            <div className="flex-1 relative">
+              <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                type="text"
+                value={loanSearchTerm}
+                onChange={(e) => setLoanSearchTerm(e.target.value)}
+                placeholder="Rechercher par étudiant, email, titre de livre ou ISBN..."
+                className="w-full text-sm sm:text-xs pl-10 pr-4 py-3 sm:py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:bg-white"
+              />
+            </div>
+
+            <div className="flex items-center gap-2">
+              <select
+                value={loanFilterStatus}
+                onChange={(e) => setLoanFilterStatus(e.target.value as any)}
+                className="text-xs py-3 sm:py-2.5 px-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-700 font-semibold cursor-pointer"
+              >
+                <option value="TOUS">Tous les statuts</option>
+                <option value="EN_RETARD">⚠️ En retard uniquement</option>
+                <option value="EN_COURS">🟢 En cours</option>
+                <option value="RETOURNE">✔️ Restitués</option>
+              </select>
+
+              <button
+                type="button"
+                onClick={handleOpenNewLoanModal}
+                className="flex items-center gap-1.5 px-4 py-3 sm:py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-xl shadow-xs transition cursor-pointer shrink-0"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Nouvel emprunt</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Tableau / Cartes des emprunts */}
+          <div className="bg-white rounded-2xl border border-slate-200/90 shadow-xs overflow-hidden">
+            <div className="px-4 sm:px-6 py-4 border-b border-slate-200 bg-slate-50/70 flex items-center justify-between">
+              <div>
+                <h3 className="font-bold text-sm text-slate-900">
+                  Suivi des Prêts Universitaires en Temps Réel
+                </h3>
+                <p className="text-xs text-slate-500">
+                  Visualisez l'horodatage précis à la seconde près et envoyez un rappel de retard aux étudiants.
+                </p>
+              </div>
+            </div>
+
+            {filteredLoans.length === 0 ? (
+              <div className="py-12 text-center text-slate-400 text-xs">
+                Aucun emprunt ne correspond aux critères de recherche.
+              </div>
+            ) : (
+              <div className="divide-y divide-slate-100">
+                {filteredLoans.map((loan) => (
+                  <div
+                    key={loan.id}
+                    className={`p-4 sm:p-5 flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 transition ${
+                      loan.statut === 'EN_RETARD'
+                        ? 'bg-rose-50/30 hover:bg-rose-50/50'
+                        : 'hover:bg-slate-50/60'
+                    }`}
+                  >
+                    {/* Colonne 1 : Détails Livre & Étudiant */}
+                    <div className="space-y-1.5 flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        {loan.statut === 'EN_RETARD' && (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-rose-100 text-rose-800 border border-rose-200 animate-pulse">
+                            <AlertTriangle className="w-3 h-3 text-rose-600" />
+                            RETARD DE RESTITUTION
+                          </span>
+                        )}
+                        {loan.statut === 'EN_COURS' && (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                            <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                            Prêt en cours
+                          </span>
+                        )}
+                        {loan.statut === 'RETOURNE' && (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-slate-100 text-slate-700 border border-slate-200">
+                            <Check className="w-3 h-3 text-slate-600" />
+                            Restitué
+                          </span>
+                        )}
+
+                        {loan.coteLivre && (
+                          <span className="font-mono text-[11px] font-bold bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded border border-indigo-100">
+                            Cote: {loan.coteLivre}
+                          </span>
+                        )}
+                      </div>
+
+                      <h4 className="font-bold text-base text-slate-900 leading-snug">
+                        {loan.titreLivre}
+                      </h4>
+
+                      <div className="flex items-center gap-3 text-xs text-slate-600 flex-wrap">
+                        <span className="flex items-center gap-1 font-semibold text-slate-800">
+                          <UserCheck className="w-3.5 h-3.5 text-indigo-600" />
+                          {loan.studentNom}
                         </span>
+                        <span className="text-slate-400 font-mono text-[11px]">
+                          ({loan.studentEmail})
+                        </span>
+                        <span className="font-mono text-[11px] text-slate-400">
+                          ISBN: {loan.isbnLivre}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Colonne 2 : Horodatage exact (Date et Heure de prêt) & Échéance */}
+                    <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-2xs space-y-1 text-xs shrink-0 w-full sm:w-auto">
+                      <div className="flex items-center gap-2 text-slate-700">
+                        <Clock className="w-4 h-4 text-indigo-600 shrink-0" />
+                        <div>
+                          <span className="text-[10px] uppercase font-bold text-slate-400 block">
+                            Date et heure exacte de prêt :
+                          </span>
+                          <span className="font-bold text-slate-900 font-mono text-xs">
+                            {loan.dateEmpruntAffichee}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2 pt-1 border-t border-slate-100 text-slate-700">
+                        <Calendar className="w-4 h-4 text-slate-400 shrink-0" />
+                        <div>
+                          <span className="text-[10px] uppercase font-bold text-slate-400 block">
+                            Date limite de retour :
+                          </span>
+                          <span
+                            className={`font-semibold text-xs ${
+                              loan.statut === 'EN_RETARD' ? 'text-rose-600 font-bold' : 'text-slate-800'
+                            }`}
+                          >
+                            {loan.dateRetourPrevueAffichee}
+                          </span>
+                        </div>
+                      </div>
+
+                      {loan.dateRetourEffectiveAffichee && (
+                        <div className="text-[10px] text-emerald-700 font-medium pt-0.5">
+                          Restitué le : {loan.dateRetourEffectiveAffichee}
+                        </div>
                       )}
-                      <span className="font-mono text-[10px] text-slate-400 flex items-center gap-1">
-                        <Barcode className="w-3 h-3" />
-                        {book.isbn}
-                      </span>
+                    </div>
+
+                    {/* Colonne 3 : Actions Gestionnaire (Notification retard / Retour livre) */}
+                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full lg:w-auto shrink-0">
+                      {loan.statut !== 'RETOURNE' && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => handleOpenNotifModal(loan)}
+                            className={`flex items-center justify-center gap-1.5 px-3.5 py-2.5 rounded-xl text-xs font-semibold shadow-2xs transition cursor-pointer touch-manipulation ${
+                              loan.statut === 'EN_RETARD'
+                                ? 'bg-rose-600 hover:bg-rose-700 text-white'
+                                : 'bg-amber-500 hover:bg-amber-600 text-white'
+                            }`}
+                            title="Envoyer un rappel officiel par notification"
+                          >
+                            <Send className="w-3.5 h-3.5" />
+                            <span>
+                              {loan.statut === 'EN_RETARD' ? 'Envoyer rappel de retard' : 'Rappel anticipé'}
+                            </span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => onReturnBook(loan.id)}
+                            className="flex items-center justify-center gap-1.5 px-3.5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold shadow-2xs transition cursor-pointer touch-manipulation"
+                            title="Enregistrer la restitution du livre"
+                          >
+                            <RotateCcw className="w-3.5 h-3.5" />
+                            <span>Retour du livre</span>
+                          </button>
+                        </>
+                      )}
+
+                      {/* Historique notifications déjà envoyées */}
+                      {loan.notifications.length > 0 && (
+                        <div className="text-[11px] font-medium text-slate-500 bg-slate-100 px-2.5 py-1 rounded-lg text-center">
+                          {loan.notifications.length} rappel{loan.notifications.length > 1 ? 's' : ''} envoyé{loan.notifications.length > 1 ? 's' : ''}
+                        </div>
+                      )}
                     </div>
                   </div>
-                </div>
-
-                {/* Contrôle de disponibilité & Actions mobiles tactiles */}
-                <div className="flex items-center justify-between pt-2 border-t border-slate-100 gap-2">
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => handleToggleDisponible(book.id)}
-                      className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden touch-manipulation ${
-                        book.disponible ? 'bg-emerald-500' : 'bg-slate-300'
-                      }`}
-                      role="switch"
-                      aria-checked={book.disponible}
-                    >
-                      <span
-                        className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md transition duration-200 ease-in-out ${
-                          book.disponible ? 'translate-x-5' : 'translate-x-0'
-                        }`}
-                      />
-                    </button>
-                    <span className={`text-xs font-semibold ${book.disponible ? 'text-emerald-700' : 'text-slate-400'}`}>
-                      {book.disponible ? 'En rayon' : 'Emprunté'}
-                    </span>
-                  </div>
-
-                  <div className="flex items-center gap-1">
-                    <button
-                      onClick={() => handleOpenEditModal(book)}
-                      className="p-2 text-indigo-600 hover:bg-indigo-50 active:bg-indigo-100 rounded-lg transition touch-manipulation cursor-pointer"
-                      title="Modifier la notice"
-                    >
-                      <Edit3 className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={() => handleDeleteBook(book.id, book.titre)}
-                      className="p-2 text-rose-500 hover:bg-rose-50 active:bg-rose-100 rounded-lg transition touch-manipulation cursor-pointer"
-                      title="Retirer de l'inventaire"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
+                ))}
               </div>
-            ))
-          )}
+            )}
+          </div>
         </div>
+      )}
 
-        {/* 2. VUE DESKTOP EN TABLEAU STRUCTURÉ (sans image) */}
-        <div className="hidden sm:block overflow-x-auto">
-          <table className="w-full text-left text-xs border-collapse">
-            <thead>
-              <tr className="bg-slate-50 text-slate-500 font-semibold border-b border-slate-200 uppercase tracking-wider text-[11px]">
-                <th className="py-3 px-4">Ouvrage & Référence</th>
-                <th className="py-3 px-4">Auteur(s)</th>
-                <th className="py-3 px-4">Discipline & Éditeur</th>
-                <th className="py-3 px-4 text-center">Statut Rayon (1-Clic)</th>
-                <th className="py-3 px-4 text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
+      {/* ======================= ONGLET 1: FONDS & INVENTAIRE ======================= */}
+      {mainTab === 'inventory' && (
+        <div className="space-y-4 sm:space-y-6 animate-in fade-in duration-150">
+          {/* Barre d'action supérieure */}
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 sm:gap-4 bg-white p-4 sm:p-5 rounded-2xl border border-slate-200/90 shadow-xs">
+            <div className="flex-1 relative">
+              <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                type="text"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder="Rechercher par titre, auteur, ISBN ou cote de rangement..."
+                className="w-full text-sm sm:text-xs pl-10 pr-4 py-3 sm:py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:bg-white"
+              />
+            </div>
+
+            <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+              <select
+                value={selectedCategory}
+                onChange={(e) => setSelectedCategory(e.target.value)}
+                className="flex-1 sm:flex-none text-xs py-3 sm:py-2.5 px-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-700 font-semibold cursor-pointer"
+              >
+                {categories.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+
+              <button
+                onClick={handleOpenAddModal}
+                className="flex items-center justify-center gap-1.5 px-4 py-3 sm:py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-xl shadow-sm transition active:scale-95 shrink-0 cursor-pointer"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Ajouter un ouvrage</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Inventaire Bibliographique */}
+          <div className="bg-white rounded-2xl border border-slate-200/90 shadow-xs overflow-hidden">
+            <div className="px-4 sm:px-6 py-3.5 sm:py-4 border-b border-slate-200 flex items-center justify-between bg-slate-50/70">
+              <div>
+                <h3 className="font-bold text-xs sm:text-sm text-slate-900">
+                  Inventaire Bibliographique USMBA
+                </h3>
+                <p className="text-[11px] sm:text-xs text-slate-500">
+                  {filteredBooks.length} ouvrage{filteredBooks.length > 1 ? 's' : ''} répertorié{filteredBooks.length > 1 ? 's' : ''} • Contrôle direct des prêts en 1 clic
+                </p>
+              </div>
+              <span className="text-[11px] font-semibold text-indigo-700 bg-indigo-50 border border-indigo-100 px-2.5 py-0.5 rounded-md">
+                Gestion du fonds
+              </span>
+            </div>
+
+            {/* VUE MOBILE */}
+            <div className="block sm:hidden divide-y divide-slate-100">
               {filteredBooks.length === 0 ? (
-                <tr>
-                  <td colSpan={5} className="py-10 text-center text-slate-400">
-                    Aucun livre ne correspond à votre recherche.
-                  </td>
-                </tr>
+                <div className="py-8 text-center text-xs text-slate-400">
+                  Aucun ouvrage ne correspond à votre recherche.
+                </div>
               ) : (
                 filteredBooks.map((book) => (
-                  <tr key={book.id} className="hover:bg-slate-50/80 transition">
-                    <td className="py-3.5 px-4">
-                      <div className="min-w-0 max-w-sm">
-                        <div className="font-bold text-slate-900 text-sm leading-snug">
+                  <div key={book.id} className="p-4 space-y-3">
+                    <div className="flex items-start gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600 shrink-0">
+                        <BookOpen className="w-5 h-5" />
+                      </div>
+                      <div className="min-w-0 flex-1 space-y-1">
+                        <h4 className="font-bold text-sm text-slate-900 leading-snug">
                           {book.titre}
-                        </div>
-                        <div className="flex items-center gap-2 mt-1">
-                          <span className="text-[11px] font-mono text-slate-500 flex items-center gap-1">
-                            <Barcode className="w-3 h-3 text-slate-400" />
-                            {book.isbn}
+                        </h4>
+                        <p className="text-xs text-slate-600 font-medium">
+                          {book.auteur}
+                        </p>
+                        <div className="flex items-center gap-2 flex-wrap pt-0.5">
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-indigo-50 text-indigo-700">
+                            <Layers className="w-3 h-3" />
+                            {book.categorie}
                           </span>
                           {book.cote && (
-                            <span className="inline-flex items-center gap-0.5 text-[10px] font-mono font-bold bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded border border-indigo-100">
-                              <Bookmark className="w-2.5 h-2.5" />
+                            <span className="font-mono text-[10px] text-indigo-700 bg-slate-100 px-1.5 py-0.5 rounded font-bold">
                               {book.cote}
                             </span>
                           )}
+                          <span className="font-mono text-[10px] text-slate-400 flex items-center gap-1">
+                            <Barcode className="w-3 h-3" />
+                            {book.isbn}
+                          </span>
                         </div>
                       </div>
-                    </td>
+                    </div>
 
-                    <td className="py-3.5 px-4 font-medium text-slate-700 max-w-xs">
-                      {book.auteur}
-                    </td>
-
-                    <td className="py-3.5 px-4 whitespace-nowrap">
-                      <div className="space-y-1">
-                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-[11px] font-semibold bg-slate-100 text-slate-700 border border-slate-200">
-                          <Layers className="w-3 h-3 text-indigo-600" />
-                          {book.categorie}
-                        </span>
-                        {(book.editeur || book.annee) && (
-                          <div className="text-[11px] text-slate-400 flex items-center gap-1.5">
-                            {book.editeur && <span>{book.editeur}</span>}
-                            {book.annee && <span>• {book.annee}</span>}
-                          </div>
-                        )}
-                      </div>
-                    </td>
-
-                    <td className="py-3.5 px-4 text-center whitespace-nowrap">
-                      <div className="inline-flex items-center gap-2">
+                    <div className="flex items-center justify-between pt-2 border-t border-slate-100 gap-2">
+                      <div className="flex items-center gap-2">
                         <button
                           type="button"
                           onClick={() => handleToggleDisponible(book.id)}
-                          className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 ${
+                          className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 touch-manipulation ${
                             book.disponible ? 'bg-emerald-500' : 'bg-slate-300'
                           }`}
                           role="switch"
                           aria-checked={book.disponible}
-                          title="Changer la disponibilité"
                         >
                           <span
-                            className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
+                            className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md transition duration-200 ${
                               book.disponible ? 'translate-x-5' : 'translate-x-0'
                             }`}
                           />
                         </button>
-                        <span
-                          className={`text-xs font-semibold ${
-                            book.disponible ? 'text-emerald-700' : 'text-slate-400'
-                          }`}
-                        >
-                          {book.disponible ? 'Disponible' : 'Emprunté'}
+                        <span className={`text-xs font-semibold ${book.disponible ? 'text-emerald-700' : 'text-slate-400'}`}>
+                          {book.disponible ? 'En rayon' : 'Emprunté'}
                         </span>
                       </div>
-                    </td>
 
-                    <td className="py-3.5 px-4 text-right whitespace-nowrap">
-                      <div className="inline-flex items-center gap-1">
+                      <div className="flex items-center gap-1">
                         <button
                           onClick={() => handleOpenEditModal(book)}
-                          className="p-2 text-slate-600 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition cursor-pointer"
+                          className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-lg transition cursor-pointer"
                           title="Modifier la notice"
                         >
                           <Edit3 className="w-4 h-4" />
                         </button>
                         <button
                           onClick={() => handleDeleteBook(book.id, book.titre)}
-                          className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition cursor-pointer"
+                          className="p-2 text-rose-500 hover:bg-rose-50 rounded-lg transition cursor-pointer"
                           title="Supprimer l'ouvrage"
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
                       </div>
-                    </td>
-                  </tr>
+                    </div>
+                  </div>
                 ))
               )}
-            </tbody>
-          </table>
-        </div>
-      </div>
+            </div>
 
-      {/* Modal "Ajouter un livre" */}
+            {/* VUE TABLEAU DESKTOP */}
+            <div className="hidden sm:block overflow-x-auto">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead>
+                  <tr className="bg-slate-50 text-slate-500 font-semibold border-b border-slate-200 uppercase tracking-wider text-[11px]">
+                    <th className="py-3 px-4">Ouvrage & Référence</th>
+                    <th className="py-3 px-4">Auteur(s)</th>
+                    <th className="py-3 px-4">Discipline & Éditeur</th>
+                    <th className="py-3 px-4 text-center">Statut Rayon (1-Clic)</th>
+                    <th className="py-3 px-4 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {filteredBooks.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="py-10 text-center text-slate-400">
+                        Aucun livre ne correspond à votre recherche.
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredBooks.map((book) => (
+                      <tr key={book.id} className="hover:bg-slate-50/80 transition">
+                        <td className="py-3.5 px-4">
+                          <div className="min-w-0 max-w-sm">
+                            <div className="font-bold text-slate-900 text-sm leading-snug">
+                              {book.titre}
+                            </div>
+                            <div className="flex items-center gap-2 mt-1">
+                              <span className="text-[11px] font-mono text-slate-500 flex items-center gap-1">
+                                <Barcode className="w-3 h-3 text-slate-400" />
+                                {book.isbn}
+                              </span>
+                              {book.cote && (
+                                <span className="inline-flex items-center gap-0.5 text-[10px] font-mono font-bold bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded border border-indigo-100">
+                                  <Bookmark className="w-2.5 h-2.5" />
+                                  {book.cote}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </td>
+
+                        <td className="py-3.5 px-4 font-medium text-slate-700 max-w-xs">
+                          {book.auteur}
+                        </td>
+
+                        <td className="py-3.5 px-4 whitespace-nowrap">
+                          <div className="space-y-1">
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-[11px] font-semibold bg-slate-100 text-slate-700 border border-slate-200">
+                              <Layers className="w-3 h-3 text-indigo-600" />
+                              {book.categorie}
+                            </span>
+                            {(book.editeur || book.annee) && (
+                              <div className="text-[11px] text-slate-400 flex items-center gap-1.5">
+                                {book.editeur && <span>{book.editeur}</span>}
+                                {book.annee && <span>• {book.annee}</span>}
+                              </div>
+                            )}
+                          </div>
+                        </td>
+
+                        <td className="py-3.5 px-4 text-center whitespace-nowrap">
+                          <div className="inline-flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => handleToggleDisponible(book.id)}
+                              className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 ${
+                                book.disponible ? 'bg-emerald-500' : 'bg-slate-300'
+                              }`}
+                              role="switch"
+                              aria-checked={book.disponible}
+                              title="Changer la disponibilité"
+                            >
+                              <span
+                                className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
+                                  book.disponible ? 'translate-x-5' : 'translate-x-0'
+                                }`}
+                              />
+                            </button>
+                            <span
+                              className={`text-xs font-semibold ${
+                                book.disponible ? 'text-emerald-700' : 'text-slate-400'
+                              }`}
+                            >
+                              {book.disponible ? 'Disponible' : 'Emprunté'}
+                            </span>
+                          </div>
+                        </td>
+
+                        <td className="py-3.5 px-4 text-right whitespace-nowrap">
+                          <div className="inline-flex items-center gap-1">
+                            <button
+                              onClick={() => handleOpenEditModal(book)}
+                              className="p-2 text-slate-600 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition cursor-pointer"
+                              title="Modifier la notice"
+                            >
+                              <Edit3 className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => handleDeleteBook(book.id, book.titre)}
+                              className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition cursor-pointer"
+                              title="Supprimer l'ouvrage"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ======================= MODAL ENVOI NOTIFICATION DE RETARD ======================= */}
+      {selectedLoanForNotif && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
+          <div className="bg-white rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl border border-slate-100 animate-in fade-in zoom-in-95 duration-150 flex flex-col max-h-[92vh]">
+            <div className="p-4 sm:p-5 border-b border-slate-100 flex items-center justify-between bg-rose-50/70">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-rose-100 flex items-center justify-center text-rose-600 shrink-0">
+                  <Send className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-sm sm:text-base text-rose-950">
+                    Notifier l'étudiant en retard
+                  </h3>
+                  <p className="text-xs text-rose-700">Rappel officiel pour restitution d'ouvrage</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setSelectedLoanForNotif(null)}
+                className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg active:bg-slate-100 transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSendNotifSubmit} className="p-4 sm:p-6 space-y-4 overflow-y-auto">
+              {notifSentSuccess && (
+                <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs rounded-xl flex items-center gap-2">
+                  <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>{notifSentSuccess}</span>
+                </div>
+              )}
+
+              {/* Récapitulatif du prêt */}
+              <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200/80 space-y-1.5 text-xs">
+                <div className="flex justify-between">
+                  <span className="text-slate-400">Étudiant destinataire :</span>
+                  <span className="font-bold text-slate-800">{selectedLoanForNotif.studentNom}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-400">Email institutionnel :</span>
+                  <span className="font-mono text-indigo-600 font-semibold">{selectedLoanForNotif.studentEmail}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-400">Ouvrage :</span>
+                  <span className="font-medium text-slate-800 truncate max-w-[240px]">{selectedLoanForNotif.titreLivre}</span>
+                </div>
+                <div className="flex justify-between pt-1 border-t border-slate-200/60">
+                  <span className="text-slate-400">Prêté le :</span>
+                  <span className="font-mono font-medium text-slate-700">{selectedLoanForNotif.dateEmpruntAffichee}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-400">Date limite dépassée :</span>
+                  <span className="font-mono font-bold text-rose-600">{selectedLoanForNotif.dateRetourPrevueAffichee}</span>
+                </div>
+              </div>
+
+              {/* Degré d'urgence */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                  Degré de gravité du rappel
+                </label>
+                <div className="grid grid-cols-3 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setNotifType('RAPPEL_RETARD')}
+                    className={`py-2 px-2 text-xs font-medium rounded-xl border transition ${
+                      notifType === 'RAPPEL_RETARD'
+                        ? 'border-indigo-500 bg-indigo-50 text-indigo-700 font-bold'
+                        : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    Rappel standard
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setNotifType('AVERTISSEMENT')}
+                    className={`py-2 px-2 text-xs font-medium rounded-xl border transition ${
+                      notifType === 'AVERTISSEMENT'
+                        ? 'border-amber-500 bg-amber-50 text-amber-800 font-bold'
+                        : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    Avertissement
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setNotifType('URGENT')}
+                    className={`py-2 px-2 text-xs font-medium rounded-xl border transition ${
+                      notifType === 'URGENT'
+                        ? 'border-rose-500 bg-rose-50 text-rose-800 font-bold'
+                        : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    Mise en demeure
+                  </button>
+                </div>
+              </div>
+
+              {/* Message */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Message envoyé à l'étudiant
+                </label>
+                <textarea
+                  rows={5}
+                  required
+                  value={notifMessage}
+                  onChange={(e) => setNotifMessage(e.target.value)}
+                  className="w-full text-xs p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+
+              <div className="flex flex-col-reverse sm:flex-row gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setSelectedLoanForNotif(null)}
+                  className="w-full sm:w-auto px-4 py-2.5 text-xs font-semibold border border-slate-200 rounded-xl text-slate-600 hover:bg-slate-50 transition cursor-pointer"
+                >
+                  Annuler
+                </button>
+                <button
+                  type="submit"
+                  className="w-full sm:flex-1 py-2.5 text-xs font-semibold bg-rose-600 hover:bg-rose-700 text-white rounded-xl shadow-xs transition cursor-pointer flex items-center justify-center gap-1.5"
+                >
+                  <Send className="w-3.5 h-3.5" />
+                  <span>Envoyer la notification</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ======================= MODAL NOUVEL EMPRUNT ======================= */}
+      {isNewLoanModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
+          <div className="bg-white rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl border border-slate-100 animate-in fade-in zoom-in-95 duration-150 flex flex-col max-h-[92vh]">
+            <div className="p-4 sm:p-5 border-b border-slate-100 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-indigo-50 flex items-center justify-center text-indigo-600 shrink-0">
+                  <Clock className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-sm sm:text-base text-slate-900">
+                    Enregistrer un nouvel emprunt
+                  </h3>
+                  <p className="text-xs text-slate-500">Horodatage précis à la seconde</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsNewLoanModalOpen(false)}
+                className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg active:bg-slate-100 transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveNewLoan} className="p-4 sm:p-6 space-y-3.5 overflow-y-auto">
+              {newLoanError && (
+                <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 text-xs rounded-xl flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>{newLoanError}</span>
+                </div>
+              )}
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Sélectionner l'ouvrage disponible *
+                </label>
+                <select
+                  required
+                  value={newLoanBookId}
+                  onChange={(e) => setNewLoanBookId(e.target.value)}
+                  className="w-full text-xs p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500"
+                >
+                  <option value="" disabled>-- Choisir un livre disponible --</option>
+                  {books
+                    .filter((b) => b.disponible)
+                    .map((b) => (
+                      <option key={b.id} value={b.id}>
+                        {b.titre} ({b.cote || b.isbn})
+                      </option>
+                    ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Email institutionnel de l'étudiant *
+                </label>
+                <input
+                  type="email"
+                  required
+                  value={newLoanStudentEmail}
+                  onChange={(e) => setNewLoanStudentEmail(e.target.value)}
+                  placeholder="etudiant@usmba.ac.ma"
+                  className="w-full text-xs p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Nom complet de l'étudiant
+                </label>
+                <input
+                  type="text"
+                  value={newLoanStudentNom}
+                  onChange={(e) => setNewLoanStudentNom(e.target.value)}
+                  placeholder="Ex: Youssef El Amrani"
+                  className="w-full text-xs p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Durée de l'emprunt
+                </label>
+                <select
+                  value={newLoanDuree}
+                  onChange={(e) => setNewLoanDuree(e.target.value)}
+                  className="w-full text-xs p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500"
+                >
+                  <option value="7">7 jours (1 semaine)</option>
+                  <option value="14">14 jours (2 semaines - standard)</option>
+                  <option value="21">21 jours (3 semaines)</option>
+                  <option value="30">30 jours (1 mois)</option>
+                </select>
+              </div>
+
+              <div className="p-3 bg-indigo-50/70 rounded-xl border border-indigo-100 text-xs text-indigo-900 space-y-1">
+                <span className="font-bold flex items-center gap-1">
+                  <Clock className="w-3.5 h-3.5 text-indigo-600" />
+                  Horodatage automatique
+                </span>
+                <p className="text-[11px] text-indigo-800">
+                  La date et l'heure exacte courante seront enregistrées dans la notice du prêt et synchronisées avec le compte de l'étudiant.
+                </p>
+              </div>
+
+              <div className="flex flex-col-reverse sm:flex-row gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setIsNewLoanModalOpen(false)}
+                  className="w-full sm:w-auto px-4 py-2.5 text-xs font-semibold border border-slate-200 rounded-xl text-slate-600 hover:bg-slate-50 transition cursor-pointer"
+                >
+                  Annuler
+                </button>
+                <button
+                  type="submit"
+                  className="w-full sm:flex-1 py-2.5 text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl shadow-xs transition cursor-pointer"
+                >
+                  Confirmer le prêt
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ======================= MODAL AJOUT LIVRE ======================= */}
       {isAddModalOpen && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
           <div className="bg-white rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl border border-slate-100 animate-in fade-in zoom-in-95 duration-150 flex flex-col max-h-[92vh]">
-            {/* Header modal */}
             <div className="p-4 sm:p-5 border-b border-slate-100 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <div className="w-8 h-8 rounded-lg bg-indigo-50 flex items-center justify-center text-indigo-600 shrink-0">
@@ -606,21 +1245,20 @@ export default function ManagerDashboard({
               </div>
               <button
                 onClick={handleCloseAddModal}
-                className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg active:bg-slate-100 transition touch-manipulation cursor-pointer"
+                className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg active:bg-slate-100 transition cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            {/* Onglets */}
             <div className="grid grid-cols-2 p-1.5 bg-slate-100 border-b border-slate-200 text-xs font-semibold">
               <button
                 type="button"
                 onClick={() => setAddTab('scan')}
-                className={`flex items-center justify-center gap-1.5 py-2.5 rounded-xl transition touch-manipulation cursor-pointer ${
+                className={`flex items-center justify-center gap-1.5 py-2.5 rounded-xl transition cursor-pointer ${
                   addTab === 'scan'
                     ? 'bg-white text-indigo-700 shadow-sm font-bold'
-                    : 'text-slate-600 hover:text-slate-900 active:bg-slate-200'
+                    : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
                 <ScanBarcode className="w-4 h-4 text-indigo-600 shrink-0" />
@@ -630,10 +1268,10 @@ export default function ManagerDashboard({
               <button
                 type="button"
                 onClick={() => setAddTab('manual')}
-                className={`flex items-center justify-center gap-1.5 py-2.5 rounded-xl transition touch-manipulation cursor-pointer ${
+                className={`flex items-center justify-center gap-1.5 py-2.5 rounded-xl transition cursor-pointer ${
                   addTab === 'manual'
                     ? 'bg-white text-indigo-700 shadow-sm font-bold'
-                    : 'text-slate-600 hover:text-slate-900 active:bg-slate-200'
+                    : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
                 <PenTool className="w-4 h-4 text-indigo-600 shrink-0" />
@@ -642,7 +1280,6 @@ export default function ManagerDashboard({
             </div>
 
             <div className="p-4 sm:p-6 overflow-y-auto space-y-4">
-              {/* Onglet 1: Scan ISBN via html5-qrcode */}
               {addTab === 'scan' && (
                 <div className="space-y-4">
                   <div className="text-xs text-slate-600 leading-relaxed bg-indigo-50/70 p-3 rounded-xl border border-indigo-100 flex items-start gap-2.5">
@@ -652,63 +1289,25 @@ export default function ManagerDashboard({
                     </div>
                   </div>
 
-                  {/* Zone de scan caméra avec viseur animé */}
-                  <div className="relative rounded-2xl overflow-hidden border-2 border-indigo-200 bg-slate-900 w-full max-w-full min-h-[220px] sm:min-h-[250px] flex items-center justify-center shadow-inner">
+                  <div className="relative rounded-2xl overflow-hidden border-2 border-indigo-200 bg-slate-900 w-full min-h-[220px] sm:min-h-[250px] flex items-center justify-center shadow-inner">
                     <div id="reader" className="w-full max-w-full overflow-hidden" />
-
-                    {cameraStatus === 'active' && (
-                      <div className="pointer-events-none absolute inset-0 flex items-center justify-center p-2">
-                        <div className="relative w-56 sm:w-64 h-32 sm:h-36 border-2 border-indigo-400/80 rounded-xl overflow-hidden shadow-[0_0_15px_rgba(99,102,241,0.5)]">
-                          <div className="absolute top-0 left-0 w-4 h-4 border-t-4 border-l-4 border-indigo-400" />
-                          <div className="absolute top-0 right-0 w-4 h-4 border-t-4 border-r-4 border-indigo-400" />
-                          <div className="absolute bottom-0 left-0 w-4 h-4 border-b-4 border-l-4 border-indigo-400" />
-                          <div className="absolute bottom-0 right-0 w-4 h-4 border-b-4 border-r-4 border-indigo-400" />
-                          <div className="scan-laser-line absolute left-0 right-0 h-0.5 bg-rose-500 shadow-[0_0_8px_#f43f5e]" />
-                        </div>
-                      </div>
-                    )}
-
                     {cameraStatus === 'starting' && (
                       <div className="absolute inset-0 bg-slate-900/90 flex flex-col items-center justify-center text-white space-y-2 p-4 text-center">
                         <RefreshCw className="w-6 h-6 animate-spin text-indigo-400" />
                         <span className="text-xs font-medium">Activation du capteur optique...</span>
                       </div>
                     )}
-
                     {cameraStatus === 'error' && (
                       <div className="absolute inset-0 bg-slate-900/95 flex flex-col items-center justify-center text-white p-4 text-center space-y-3">
                         <AlertCircle className="w-7 h-7 text-amber-400 shrink-0" />
-                        <p className="text-xs text-slate-300 leading-relaxed max-w-xs">
-                          {cameraErrorMessage || "Accès caméra impossible."}
-                        </p>
-                        <div className="flex flex-wrap gap-2 justify-center pt-1">
-                          <button
-                            type="button"
-                            onClick={startCamera}
-                            className="flex items-center gap-1.5 px-3 py-2 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white rounded-lg text-xs font-semibold transition touch-manipulation cursor-pointer"
-                          >
-                            <RefreshCw className="w-3.5 h-3.5" />
-                            Réessayer
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => fileInputRef.current?.click()}
-                            className="flex items-center gap-1.5 px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-lg text-xs font-semibold transition touch-manipulation cursor-pointer"
-                          >
-                            <UploadCloud className="w-3.5 h-3.5 text-indigo-400" />
-                            Photo code-barres
-                          </button>
-                        </div>
-                      </div>
-                    )}
-
-                    {cameraStatus === 'success' && (
-                      <div className="absolute inset-0 bg-emerald-950/90 flex flex-col items-center justify-center text-white space-y-2 p-4 text-center">
-                        <CheckCircle2 className="w-9 h-9 text-emerald-400 animate-bounce" />
-                        <span className="text-sm font-bold text-emerald-200">ISBN détecté !</span>
-                        <span className="font-mono text-xs text-white bg-emerald-800/80 px-3 py-1 rounded-full">
-                          {formIsbn}
-                        </span>
+                        <p className="text-xs text-slate-300 max-w-xs">{cameraErrorMessage}</p>
+                        <button
+                          type="button"
+                          onClick={startCamera}
+                          className="px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-semibold cursor-pointer"
+                        >
+                          Réessayer
+                        </button>
                       </div>
                     )}
                   </div>
@@ -721,56 +1320,18 @@ export default function ManagerDashboard({
                     className="hidden"
                   />
 
-                  {/* Actions de secours et exemples réels */}
-                  <div className="bg-slate-50 p-3 sm:p-3.5 rounded-xl border border-slate-200 space-y-2.5">
-                    <div className="flex items-center justify-between flex-wrap gap-1">
-                      <span className="text-xs font-semibold text-slate-700">Scan alternatif :</span>
-                      <button
-                        type="button"
-                        onClick={() => fileInputRef.current?.click()}
-                        className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 hover:text-indigo-800 py-1 transition touch-manipulation cursor-pointer"
-                      >
-                        <UploadCloud className="w-3.5 h-3.5" />
-                        Importer une photo
-                      </button>
-                    </div>
-
-                    <div>
-                      <p className="text-[11px] text-slate-400 mb-1.5">
-                        Ou tester avec un exemple d'ISBN réel :
-                      </p>
-                      <div className="flex flex-wrap gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() => handleSimulateScan('978-0262046305')}
-                          className="px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-indigo-50 text-slate-700 text-[11px] font-mono transition touch-manipulation cursor-pointer"
-                        >
-                          978-0262046305 (CLRS Algorithmes)
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleSimulateScan('978-0387310732')}
-                          className="px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-indigo-50 text-slate-700 text-[11px] font-mono transition touch-manipulation cursor-pointer"
-                        >
-                          978-0387310732 (Bishop ML)
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-
                   <div className="flex justify-end pt-1">
                     <button
                       type="button"
                       onClick={() => setAddTab('manual')}
-                      className="w-full sm:w-auto px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-xs font-semibold rounded-xl transition touch-manipulation cursor-pointer"
+                      className="w-full sm:w-auto px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-xl transition cursor-pointer"
                     >
-                      Compléter la fiche &rarr;
+                      Compléter la fiche manuelle &rarr;
                     </button>
                   </div>
                 </div>
               )}
 
-              {/* Onglet 2: Saisie manuelle structurée */}
               {addTab === 'manual' && (
                 <form onSubmit={handleSaveNewBook} className="space-y-3">
                   {formError && (
@@ -780,29 +1341,19 @@ export default function ManagerDashboard({
                     </div>
                   )}
 
-                  {formIsbn && (
-                    <div className="p-2.5 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs rounded-xl flex items-center gap-2">
-                      <Check className="w-4 h-4 text-emerald-600 shrink-0" />
-                      <span>Code ISBN identifié : <strong>{formIsbn}</strong></span>
-                    </div>
-                  )}
-
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div className="sm:col-span-2">
                       <label className="block text-xs font-semibold text-slate-700 mb-1">
                         Numéro ISBN *
                       </label>
-                      <div className="relative">
-                        <Barcode className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                        <input
-                          type="text"
-                          required
-                          value={formIsbn}
-                          onChange={(e) => setFormIsbn(e.target.value)}
-                          placeholder="Ex: 978-0262046305"
-                          className="w-full text-sm sm:text-xs pl-9 pr-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 font-mono"
-                        />
-                      </div>
+                      <input
+                        type="text"
+                        required
+                        value={formIsbn}
+                        onChange={(e) => setFormIsbn(e.target.value)}
+                        placeholder="Ex: 978-0262046305"
+                        className="w-full text-xs p-2.5 bg-slate-50 border border-slate-200 rounded-xl font-mono"
+                      />
                     </div>
 
                     <div className="sm:col-span-2">
@@ -815,7 +1366,7 @@ export default function ManagerDashboard({
                         value={formTitre}
                         onChange={(e) => setFormTitre(e.target.value)}
                         placeholder="Ex: Introduction to Algorithms"
-                        className="w-full text-sm sm:text-xs px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500"
+                        className="w-full text-xs p-2.5 bg-slate-50 border border-slate-200 rounded-xl"
                       />
                     </div>
 
@@ -828,8 +1379,8 @@ export default function ManagerDashboard({
                         required
                         value={formAuteur}
                         onChange={(e) => setFormAuteur(e.target.value)}
-                        placeholder="Ex: T. Cormen, C. Leiserson..."
-                        className="w-full text-sm sm:text-xs px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500"
+                        placeholder="Ex: T. Cormen, C. Leiserson"
+                        className="w-full text-xs p-2.5 bg-slate-50 border border-slate-200 rounded-xl"
                       />
                     </div>
 
@@ -841,8 +1392,8 @@ export default function ManagerDashboard({
                         type="text"
                         value={formCategorie}
                         onChange={(e) => setFormCategorie(e.target.value)}
-                        placeholder="Ex: Informatique & Algorithmique"
-                        className="w-full text-sm sm:text-xs px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500"
+                        placeholder="Ex: Informatique"
+                        className="w-full text-xs p-2.5 bg-slate-50 border border-slate-200 rounded-xl"
                       />
                     </div>
 
@@ -850,77 +1401,38 @@ export default function ManagerDashboard({
                       <label className="block text-xs font-semibold text-slate-700 mb-1">
                         Cote de rangement en rayon
                       </label>
-                      <div className="relative">
-                        <Bookmark className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                        <input
-                          type="text"
-                          value={formCote}
-                          onChange={(e) => setFormCote(e.target.value)}
-                          placeholder="Ex: INFO-COR-01"
-                          className="w-full text-sm sm:text-xs pl-9 pr-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 font-mono"
-                        />
-                      </div>
+                      <input
+                        type="text"
+                        value={formCote}
+                        onChange={(e) => setFormCote(e.target.value)}
+                        placeholder="Ex: INFO-COR-01"
+                        className="w-full text-xs p-2.5 bg-slate-50 border border-slate-200 rounded-xl font-mono"
+                      />
                     </div>
 
                     <div>
                       <label className="block text-xs font-semibold text-slate-700 mb-1">
                         Maison d'édition
                       </label>
-                      <div className="relative">
-                        <Building2 className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                        <input
-                          type="text"
-                          value={formEditeur}
-                          onChange={(e) => setFormEditeur(e.target.value)}
-                          placeholder="Ex: MIT Press / Dunod"
-                          className="w-full text-sm sm:text-xs pl-9 pr-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500"
-                        />
-                      </div>
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-700 mb-1">
-                        Année d'édition
-                      </label>
-                      <div className="relative">
-                        <Calendar className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                        <input
-                          type="number"
-                          value={formAnnee}
-                          onChange={(e) => setFormAnnee(e.target.value)}
-                          placeholder="2022"
-                          className="w-full text-sm sm:text-xs pl-9 pr-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 font-mono"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-200">
-                      <span className="text-xs font-semibold text-slate-700">Disponible immédiatement</span>
-                      <button
-                        type="button"
-                        onClick={() => setFormDisponible(!formDisponible)}
-                        className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 touch-manipulation ${
-                          formDisponible ? 'bg-emerald-500' : 'bg-slate-300'
-                        }`}
-                      >
-                        <span
-                          className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-sm transition duration-200 ${
-                            formDisponible ? 'translate-x-5' : 'translate-x-0'
-                          }`}
-                        />
-                      </button>
+                      <input
+                        type="text"
+                        value={formEditeur}
+                        onChange={(e) => setFormEditeur(e.target.value)}
+                        placeholder="Ex: MIT Press / Dunod"
+                        className="w-full text-xs p-2.5 bg-slate-50 border border-slate-200 rounded-xl"
+                      />
                     </div>
 
                     <div className="sm:col-span-2">
                       <label className="block text-xs font-semibold text-slate-700 mb-1">
-                        Résumé / Description pédagogique
+                        Description pédagogique
                       </label>
                       <textarea
                         rows={3}
                         value={formDescription}
                         onChange={(e) => setFormDescription(e.target.value)}
-                        placeholder="Présentation des thématiques et notions abordées dans cet ouvrage..."
-                        className="w-full text-sm sm:text-xs px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500"
+                        placeholder="Présentation des thématiques..."
+                        className="w-full text-xs p-2.5 bg-slate-50 border border-slate-200 rounded-xl"
                       />
                     </div>
                   </div>
@@ -929,13 +1441,13 @@ export default function ManagerDashboard({
                     <button
                       type="button"
                       onClick={() => setAddTab('scan')}
-                      className="w-full sm:w-auto px-4 py-2.5 text-xs font-semibold border border-slate-200 rounded-xl text-slate-600 hover:bg-slate-50 active:bg-slate-100 transition touch-manipulation cursor-pointer"
+                      className="w-full sm:w-auto px-4 py-2.5 text-xs font-semibold border border-slate-200 rounded-xl text-slate-600 cursor-pointer"
                     >
                       &larr; Retour Scan
                     </button>
                     <button
                       type="submit"
-                      className="w-full sm:flex-1 py-3 sm:py-2.5 text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white rounded-xl shadow-xs transition touch-manipulation cursor-pointer"
+                      className="w-full sm:flex-1 py-2.5 text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl cursor-pointer"
                     >
                       Enregistrer l'ouvrage
                     </button>
@@ -947,7 +1459,7 @@ export default function ManagerDashboard({
         </div>
       )}
 
-      {/* Modal "Édition d'un livre" */}
+      {/* ======================= MODAL EDITION LIVRE ======================= */}
       {editingBook && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
           <div className="bg-white rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl border border-slate-100 animate-in fade-in zoom-in-95 duration-150 p-4 sm:p-6 space-y-4 max-h-[92vh] overflow-y-auto">
@@ -958,7 +1470,7 @@ export default function ManagerDashboard({
               </div>
               <button
                 onClick={() => setEditingBook(null)}
-                className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg active:bg-slate-100 transition touch-manipulation cursor-pointer"
+                className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg active:bg-slate-100 transition cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -979,7 +1491,7 @@ export default function ManagerDashboard({
                   required
                   value={formTitre}
                   onChange={(e) => setFormTitre(e.target.value)}
-                  className="w-full text-sm sm:text-xs px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500"
+                  className="w-full text-xs p-2.5 bg-slate-50 border border-slate-200 rounded-xl"
                 />
               </div>
 
@@ -991,7 +1503,7 @@ export default function ManagerDashboard({
                     required
                     value={formAuteur}
                     onChange={(e) => setFormAuteur(e.target.value)}
-                    className="w-full text-sm sm:text-xs px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500"
+                    className="w-full text-xs p-2.5 bg-slate-50 border border-slate-200 rounded-xl"
                   />
                 </div>
                 <div>
@@ -1000,7 +1512,7 @@ export default function ManagerDashboard({
                     type="text"
                     value={formCategorie}
                     onChange={(e) => setFormCategorie(e.target.value)}
-                    className="w-full text-sm sm:text-xs px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500"
+                    className="w-full text-xs p-2.5 bg-slate-50 border border-slate-200 rounded-xl"
                   />
                 </div>
               </div>
@@ -1012,7 +1524,7 @@ export default function ManagerDashboard({
                     type="text"
                     value={formIsbn}
                     onChange={(e) => setFormIsbn(e.target.value)}
-                    className="w-full text-sm sm:text-xs px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 font-mono"
+                    className="w-full text-xs p-2.5 bg-slate-50 border border-slate-200 rounded-xl font-mono"
                   />
                 </div>
                 <div>
@@ -1022,50 +1534,17 @@ export default function ManagerDashboard({
                     value={formCote}
                     onChange={(e) => setFormCote(e.target.value)}
                     placeholder="Ex: INFO-COR-01"
-                    className="w-full text-sm sm:text-xs px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 font-mono"
+                    className="w-full text-xs p-2.5 bg-slate-50 border border-slate-200 rounded-xl font-mono"
                   />
                 </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Maison d'édition</label>
-                  <input
-                    type="text"
-                    value={formEditeur}
-                    onChange={(e) => setFormEditeur(e.target.value)}
-                    placeholder="Ex: Dunod"
-                    className="w-full text-sm sm:text-xs px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Année</label>
-                  <input
-                    type="number"
-                    value={formAnnee}
-                    onChange={(e) => setFormAnnee(e.target.value)}
-                    placeholder="2022"
-                    className="w-full text-sm sm:text-xs px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 font-mono"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Résumé & Description</label>
-                <textarea
-                  rows={3}
-                  value={formDescription}
-                  onChange={(e) => setFormDescription(e.target.value)}
-                  className="w-full text-sm sm:text-xs px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500"
-                />
               </div>
 
               <div className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-200">
-                <span className="text-xs font-semibold text-slate-700">Disponibilité immédiate en rayon</span>
+                <span className="text-xs font-semibold text-slate-700">Disponibilité en rayon</span>
                 <button
                   type="button"
                   onClick={() => setFormDisponible(!formDisponible)}
-                  className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 touch-manipulation ${
+                  className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ${
                     formDisponible ? 'bg-emerald-500' : 'bg-slate-300'
                   }`}
                 >
@@ -1081,15 +1560,15 @@ export default function ManagerDashboard({
                 <button
                   type="button"
                   onClick={() => setEditingBook(null)}
-                  className="w-full sm:flex-1 py-2.5 text-xs font-semibold border border-slate-200 rounded-xl text-slate-600 hover:bg-slate-50 active:bg-slate-100 transition touch-manipulation cursor-pointer"
+                  className="w-full sm:flex-1 py-2.5 text-xs font-semibold border border-slate-200 rounded-xl text-slate-600 cursor-pointer"
                 >
                   Annuler
                 </button>
                 <button
                   type="submit"
-                  className="w-full sm:flex-1 py-2.5 text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white rounded-xl shadow-xs transition touch-manipulation cursor-pointer"
+                  className="w-full sm:flex-1 py-2.5 text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl cursor-pointer"
                 >
-                  Sauvegarder les modifications
+                  Sauvegarder
                 </button>
               </div>
             </form>
